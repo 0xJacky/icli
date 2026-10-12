@@ -98,7 +98,8 @@ static void resolveBootstrapLocked(void) {
         rootfsPrefix = @"/";
         bootstrapSource = @"filesystem fallback";
     }
-    while (bootstrapPrefix.length > 1 && [bootstrapPrefix hasSuffix:@"/"]) bootstrapPrefix = [bootstrapPrefix substringToIndex:bootstrapPrefix.length - 1];
+    while (bootstrapPrefix.length > 1 && [bootstrapPrefix hasSuffix:@"/"])
+        bootstrapPrefix =[bootstrapPrefix substringToIndex:bootstrapPrefix.length - 1];
 }
 
 /// Call with bootstrapLock held; nil when no bootstrap was found.
@@ -155,7 +156,8 @@ char *icli_rootfs_path(const char *path) {
     if (convert) return convert(path, NULL);
     NSString *input = @(path);
     if (!input) return strdup(path);
-    if (![jb isEqual:@"/"] && [input hasPrefix:[jb stringByAppendingString:@"/"]]) return strdup([input substringFromIndex:jb.length].UTF8String);
+    if (![jb isEqual:@"/"] && [input hasPrefix:[jb stringByAppendingString:@"/"]])
+        return strdup([input substringFromIndex:jb.length].UTF8String);
     if ([rootfs isEqual:@"/"] || [input hasPrefix:[rootfs stringByAppendingString:@"/"]]) return strdup(path);
     return strdup([rootfs stringByAppendingPathComponent:input].fileSystemRepresentation);
 }
@@ -196,7 +198,8 @@ char *icli_boot_info_json(void) {
     }
     char session[64] = {0};
     size = sizeof(session) - 1;
-    if (sysctlbyname("kern.bootsessionuuid", session, &size, NULL, 0) == 0) info[@"boot_session_uuid"] = icli_system_string(session, sizeof(session));
+    if (sysctlbyname("kern.bootsessionuuid", session, &size, NULL, 0) == 0)
+        info[@"boot_session_uuid"] = icli_system_string(session, sizeof(session));
     return icli_system_json(info);
 }
 

@@ -21,7 +21,10 @@ char *icli_syslog_json(double seconds, const char *process, const char *level, i
     SEL setHandler = NSSelectorFromString(@"setEventHandler:");
     SEL activate = NSSelectorFromString(@"activate");
     SEL invalidate = NSSelectorFromString(@"invalidate");
-    if (!stream || ![stream respondsToSelector:setHandler] || ![stream respondsToSelector:activate] || ![stream respondsToSelector:invalidate]) {
+    if (!stream
+        || ![stream respondsToSelector:setHandler]
+        || ![stream respondsToSelector:activate]
+        || ![stream respondsToSelector:invalidate]) {
         return icli_json(@{@"error": @"unified log stream unavailable"});
     }
     NSMutableArray *entries = [NSMutableArray array];
@@ -34,7 +37,10 @@ char *icli_syslog_json(double seconds, const char *process, const char *level, i
         NSString *message = logProperty(event, @"composedMessage");
         NSString *name = logProperty(event, @"process");
         if (![message isKindOfClass:NSString.class]) return;
-        if (processFilter.length && (![name isKindOfClass:NSString.class] || [name rangeOfString:processFilter options:NSCaseInsensitiveSearch].location == NSNotFound)) return;
+        if (processFilter.length
+            && (![name isKindOfClass:NSString.class]
+                || [name rangeOfString:processFilter options:NSCaseInsensitiveSearch].location == NSNotFound))
+            return;
         SEL typeSelector = NSSelectorFromString(@"logType");
         unsigned long long type = ((unsigned long long (*)(id, SEL))objc_msgSend)(event, typeSelector);
         if ([levelFilter isEqual:@"error"] && type != 0x10 && type != 0x11) return;

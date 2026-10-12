@@ -19,7 +19,13 @@ import Foundation
 /// Pure: no file system access, so it is tested on the Mac.
 public enum LaunchdPlistPaths {
     /// The top-level keys whose string value is a path launchd opens.
-    static let pathKeys = ["RootDirectory", "WorkingDirectory", "StandardInPath", "StandardOutPath", "StandardErrorPath"]
+    static let pathKeys = [
+        "RootDirectory",
+        "WorkingDirectory",
+        "StandardInPath",
+        "StandardOutPath",
+        "StandardErrorPath"
+    ]
     /// The top-level keys whose value is a list of such paths.
     static let pathListKeys = ["WatchPaths", "QueueDirectories"]
     /// The environment variables launchd sets that name a directory.

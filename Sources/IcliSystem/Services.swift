@@ -209,7 +209,9 @@ public func launchdPlists(at path: String) -> [String] {
 
 /// A launchd job's property list and the format it is stored in, or nil when
 /// the file is unreadable or is not a dictionary.
-public func readLaunchdJob(_ path: String) -> (job: [String: Any], format: PropertyListSerialization.PropertyListFormat)? {
+public func readLaunchdJob(
+    _ path: String
+) -> (job: [String: Any], format: PropertyListSerialization.PropertyListFormat)? {
     guard let data = FileManager.default.contents(atPath: path) else { return nil }
     var format = PropertyListSerialization.PropertyListFormat.xml
     let object = try? PropertyListSerialization.propertyList(from: data, options: [], format: &format)
@@ -229,7 +231,15 @@ public func servicePlistPaths(_ paths: [String]) throws -> [String: Any] {
             errors[plist] = "not a readable property list dictionary"
             continue
         }
-        plists.append(LaunchdPlistPaths.report(job, plistPath: plist, root: bootstrap.jbroot, rootHide: rootHide, exists: pathExists))
+        plists.append(
+            LaunchdPlistPaths.report(
+                job,
+                plistPath: plist,
+                root: bootstrap.jbroot,
+                rootHide: rootHide,
+                exists: pathExists
+            )
+        )
     }
     return [
         "layout": bootstrap.layout?.rawValue ?? NSNull(),

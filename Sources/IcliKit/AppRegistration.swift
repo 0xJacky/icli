@@ -304,7 +304,11 @@ func registrationDifference(_ record: [String: Any], _ plan: RegistrationPlan) -
     return nil
 }
 
-private func bundleDifference(_ record: [String: Any], _ bundle: RegistrationPlan.Bundle, _ plan: RegistrationPlan) -> String? {
+private func bundleDifference(
+    _ record: [String: Any],
+    _ bundle: RegistrationPlan.Bundle,
+    _ plan: RegistrationPlan
+) -> String? {
     if record["path"] as? String != normalizedAppPath(bundle.path) {
         return "path"
     }

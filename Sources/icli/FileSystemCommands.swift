@@ -5,7 +5,10 @@ import IcliKit
 struct FS: ParsableCommand {
     static var configuration = CommandConfiguration(
         abstract: "Filesystem",
-        subcommands: [Ls.self, Read.self, Write.self, Find.self, Plist.self, PlistSet.self, Mkdir.self, Rm.self, Link.self, Chmod.self, Chown.self, Copy.self, Move.self],
+        subcommands: [
+            Ls.self, Read.self, Write.self, Find.self, Plist.self, PlistSet.self, Mkdir.self,
+            Rm.self, Link.self, Chmod.self, Chown.self, Copy.self, Move.self
+        ],
     )
 }
 

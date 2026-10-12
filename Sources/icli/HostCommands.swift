@@ -43,7 +43,10 @@ extension Log {
 struct Pkg: ParsableCommand {
     static var configuration = CommandConfiguration(
         abstract: "Inspect, install, and remove Debian packages and manage package sources.",
-        subcommands: [List.self, Install.self, Remove.self, Info.self, Extract.self, Status.self, Compare.self, Repos.self, AddRepo.self, Tweaks.self],
+        subcommands: [
+            List.self, Install.self, Remove.self, Info.self, Extract.self,
+            Status.self, Compare.self, Repos.self, AddRepo.self, Tweaks.self
+        ],
     )
 }
 

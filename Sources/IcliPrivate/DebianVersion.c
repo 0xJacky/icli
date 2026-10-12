@@ -42,7 +42,13 @@ static int parseVersion(const char *string, ParsedVersion *version) {
         char *epochEnd = NULL;
         errno = 0;
         long epoch = strtol(string, &epochEnd, 10);
-        if (epochEnd == string || epochEnd != string + colon || epoch < 0 || epoch > INT_MAX || errno == ERANGE || colon + 1 == remainder.length) return 0;
+        if (epochEnd == string
+            || epochEnd != string + colon
+            || epoch < 0
+            || epoch > INT_MAX
+            || errno == ERANGE
+            || colon + 1 == remainder.length)
+            return 0;
         version->epoch = (unsigned int)epoch;
         remainder.bytes += colon + 1;
         remainder.length -= colon + 1;

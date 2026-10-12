@@ -5,7 +5,10 @@ import IcliKit
 struct Device: ParsableCommand {
     static var configuration = CommandConfiguration(
         abstract: "Device info and settings",
-        subcommands: [Info.self, Jetsam.self, Brightness.self, Volume.self, Rotation.self, Network.self, Ioreg.self, Devmode.self, LowPower.self, Timezone.self, Reboot.self, Bootlogo.self],
+        subcommands: [
+            Info.self, Jetsam.self, Brightness.self, Volume.self, Rotation.self, Network.self,
+            Ioreg.self, Devmode.self, LowPower.self, Timezone.self, Reboot.self, Bootlogo.self
+        ],
     )
 }
 

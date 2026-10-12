@@ -84,7 +84,11 @@ int icli_low_power_mode_set(bool enabled) {
             dispatch_semaphore_signal(done);
         };
         ((void (*)(id, SEL, long, NSString *, id))objc_msgSend)(
-            service, asyncSet, enabled ? 1 : 0, @"ControlCenter", completion
+            service,
+            asyncSet,
+            enabled ? 1 : 0,
+            @"ControlCenter",
+            completion
         );
         if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC)) != 0)
             return -2;
@@ -97,7 +101,10 @@ int icli_low_power_mode_set(bool enabled) {
     SEL set = NSSelectorFromString(@"setPowerMode:fromSource:");
     if (![service respondsToSelector:set]) return -1;
     return ((BOOL (*)(id, SEL, long, NSString *))objc_msgSend)(
-        service, set, enabled ? 1 : 0, @"ControlCenter"
+        service,
+        set,
+        enabled ? 1 : 0,
+        @"ControlCenter"
     ) ? 0 : -3;
 }
 

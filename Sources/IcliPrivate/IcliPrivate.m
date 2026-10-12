@@ -628,9 +628,19 @@ static UIImage *screenshotViaRenderServer(void) {
     }
     CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
     CGDataProviderRef provider = CGDataProviderCreateWithCFData((__bridge CFDataRef)pixels);
-    CGImageRef cg = CGImageCreate(width, height, 8, 32, bpr, space,
+    CGImageRef cg = CGImageCreate(
+        width,
+        height,
+        8,
+        32,
+        bpr,
+        space,
         kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little,
-        provider, NULL, true, kCGRenderingIntentDefault);
+        provider,
+        NULL,
+        true,
+        kCGRenderingIntentDefault
+    );
     UIImage *image = cg ? [UIImage imageWithCGImage:cg scale:m.scale orientation:UIImageOrientationUp] : nil;
     if (cg) {
         CGImageRelease(cg);
@@ -801,10 +811,22 @@ static IOHIDEventRef createDigitizerEvent(double nx, double ny, IcliTouchPhase p
         break;
     }
     IOHIDEventRef parent = pIOHIDEventCreateDigitizerEvent(
-        kCFAllocatorDefault, timestamp, kIOHIDDigitizerTransducerTypeHand,
-        0, 0, mask, 0,
-        0, 0, 0, 0, 0,
-        range, isTouch, kIOHIDEventOptionNone);
+        kCFAllocatorDefault,
+        timestamp,
+        kIOHIDDigitizerTransducerTypeHand,
+        0,
+        0,
+        mask,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        range,
+        isTouch,
+        kIOHIDEventOptionNone
+    );
     if (!parent) {
         return NULL;
     }
@@ -813,9 +835,20 @@ static IOHIDEventRef createDigitizerEvent(double nx, double ny, IcliTouchPhase p
     }
     if (pIOHIDEventCreateDigitizerFingerEvent && pIOHIDEventAppendEvent) {
         IOHIDEventRef finger = pIOHIDEventCreateDigitizerFingerEvent(
-            kCFAllocatorDefault, timestamp, 0, 2, mask,
-            nx, ny, 0, 0, 0,
-            range, isTouch, kIOHIDEventOptionNone);
+            kCFAllocatorDefault,
+            timestamp,
+            0,
+            2,
+            mask,
+            nx,
+            ny,
+            0,
+            0,
+            0,
+            range,
+            isTouch,
+            kIOHIDEventOptionNone
+        );
         if (finger) {
             pIOHIDEventAppendEvent(parent, finger, 0);
             CFRelease(finger);

@@ -137,9 +137,18 @@ func run(deb: URL) throws {
     try data.write(to: archive)
     let destination = root.appendingPathComponent("unicode")
     let result = try extract(archive, destination)
-    try check(result["error"] == nil && result["entries"] as? Int == 2, "Unicode IPA extraction failed: \(result)")
-    try check(Data(contentsOf: destination.appendingPathComponent(name)) == Data(content.utf8), "Unicode name or bytes changed")
-    try check(Data(contentsOf: destination.appendingPathComponent(resourceName)) == Data(resourceBytes.utf8), "resource bytes changed")
+    try check(
+        result["error"] == nil && result["entries"] as? Int == 2,
+        "Unicode IPA extraction failed: \(result)"
+    )
+    try check(
+        Data(contentsOf: destination.appendingPathComponent(name)) == Data(content.utf8),
+        "Unicode name or bytes changed"
+    )
+    try check(
+        Data(contentsOf: destination.appendingPathComponent(resourceName)) == Data(resourceBytes.utf8),
+        "resource bytes changed"
+    )
     try check(Data(contentsOf: archive) == data, "input archive changed")
     try check(restored(), "IPA extraction changed the caller's locale")
 
@@ -178,7 +187,10 @@ func run(deb: URL) throws {
         try check((failure["error"] as? String)?.contains(expected) == true, "\(label) was not rejected: \(failure)")
         try check(restored(), "\(label) changed the caller's locale")
     }
-    try check(!FileManager.default.fileExists(atPath: root.appendingPathComponent("escape").path), "traversal wrote outside its root")
+    try check(
+        !FileManager.default.fileExists(atPath: root.appendingPathComponent("escape").path),
+        "traversal wrote outside its root"
+    )
 
     // deb: a PAX data member with a UTF-8 path lists, unpacks and reads back.
     let debName = "/var/jb/usr/share/icli-locale-test/What’s New 中文.txt"
@@ -187,8 +199,14 @@ func run(deb: URL) throws {
     try check(listing["error"] == nil && files.contains("." + debName), "Unicode deb listing failed: \(listing)")
     let prefix = root.appendingPathComponent("prefix")
     let unpacked = try json(icli_deb_unpack_json(deb.path, prefix.path, nil, 0))
-    try check((unpacked["installed"] as? [String])?.contains(debName) == true && unpacked["error"] == nil, "Unicode deb unpack failed: \(unpacked)")
-    try check(String(contentsOf: URL(fileURLWithPath: prefix.path + debName), encoding: .utf8) == "unicode deb\n", "unpacked deb bytes changed")
+    try check(
+        (unpacked["installed"] as? [String])?.contains(debName) == true && unpacked["error"] == nil,
+        "Unicode deb unpack failed: \(unpacked)"
+    )
+    try check(
+        String(contentsOf: URL(fileURLWithPath: prefix.path + debName), encoding: .utf8) == "unicode deb\n",
+        "unpacked deb bytes changed"
+    )
     let dataTar = deb.deletingLastPathComponent().appendingPathComponent("data.tar.gz")
     guard let text = icli_tar_entry_text(dataTar.path, String(debName.dropFirst())) else {
         throw TestFailure.check("Unicode tar entry was not found")
@@ -264,12 +282,21 @@ func runDebSafety(links: URL, escape: URL, outside: URL) throws {
     let staging = root.appendingPathComponent("staging")
     try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
     let escaped = try json(icli_deb_read_json(escape.path, staging.path))
-    try check((escaped["error"] as? String)?.contains("escapes") == true, "the symlink escape was not rejected: \(escaped)")
-    try check(!FileManager.default.fileExists(atPath: outside.appendingPathComponent("x").path), "directories were created outside the staging root")
+    try check(
+        (escaped["error"] as? String)?.contains("escapes") == true,
+        "the symlink escape was not rejected: \(escaped)"
+    )
+    try check(
+        !FileManager.default.fileExists(atPath: outside.appendingPathComponent("x").path),
+        "directories were created outside the staging root"
+    )
 
     // A member name that is not UTF-8 fails the read instead of throwing.
     let invalid = root.appendingPathComponent("invalid.deb")
-    try arArchive(memberName: Data("data".utf8) + Data([0xFF, 0xFE]) + Data(".tar/".utf8), contents: Data("x".utf8)).write(to: invalid)
+    try arArchive(
+        memberName: Data("data".utf8) + Data([0xFF, 0xFE]) + Data(".tar/".utf8),
+        contents: Data("x".utf8)
+    ).write(to: invalid)
     for result in try [json(icli_deb_read_json(invalid.path, nil)), json(icli_deb_unpack_json(invalid.path, prefix.path, nil, 0))] {
         try check(result["error"] is String, "a non-UTF-8 member name was accepted: \(result)")
     }

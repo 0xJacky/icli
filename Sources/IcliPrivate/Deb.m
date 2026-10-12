@@ -194,7 +194,11 @@ static char *readDeb(const char *path, const char *destination) {
             if (!failure && root) {
                 NSString *debian = [root stringByAppendingPathComponent:@"DEBIAN"];
                 NSError *error = nil;
-                if (![NSFileManager.defaultManager createDirectoryAtPath:debian withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions: @0755} error:&error]) failure = error.localizedDescription;
+                if (![NSFileManager.defaultManager createDirectoryAtPath:debian
+                                             withIntermediateDirectories:YES
+                                                              attributes:@{NSFilePosixPermissions: @0755}
+                                                                   error:&error])
+                    failure = error.localizedDescription;
                 else failure = walkTar(body, debian, nil, nil, false);
             }
         } else if ([name hasPrefix:@"data.tar"]) {
@@ -223,7 +227,8 @@ static char *readDeb(const char *path, const char *destination) {
     result[@"control_order"] = order;
     result[@"control_files"] = controlEntries;
     result[@"control_texts"] = controlTexts;
-    result[@"scripts"] = [controlTexts.allKeys filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF IN %@", @[@"preinst", @"postinst", @"prerm", @"postrm"]]];
+    result[@"scripts"] = [controlTexts.allKeys filteredArrayUsingPredicate:
+        [NSPredicate predicateWithFormat:@"SELF IN %@", @[@"preinst", @"postinst", @"prerm", @"postrm"]]];
     result[@"files"] = dataEntries;
     result[@"extracted"] = root ? @YES : @NO;
     if (root) result[@"destination"] = root;
@@ -249,7 +254,13 @@ static NSString *applyEntryMetadata(NSString *destination, struct archive_entry 
     mode_t mode = archive_entry_perm(entry) & 07777;
     if (archive_entry_filetype(entry) != AE_IFLNK && chmod(destination.fileSystemRepresentation, mode ?: 0644) != 0)
         return @(strerror(errno));
-    if (geteuid() == 0 && lchown(destination.fileSystemRepresentation, (uid_t)archive_entry_uid(entry), (gid_t)archive_entry_gid(entry)) != 0) return @(strerror(errno));
+    if (geteuid() == 0
+        && lchown(
+            destination.fileSystemRepresentation,
+            (uid_t)archive_entry_uid(entry),
+            (gid_t)archive_entry_gid(entry)
+        ) != 0)
+        return @(strerror(errno));
     return nil;
 }
 
@@ -299,7 +310,14 @@ static char *unpackDeb(const char *path, const char *prefix, const char **skip, 
                 failure = [NSString stringWithFormat:@"%@ exists and is not a directory", destination];
                 break;
             }
-            if (![NSFileManager.defaultManager createDirectoryAtPath:destination withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions: @(archive_entry_perm(entry) & 07777 ?: 0755)} error:&error]) { failure = error.localizedDescription; break; }
+            if (![NSFileManager.defaultManager
+                    createDirectoryAtPath:destination
+                    withIntermediateDirectories:YES
+                    attributes:@{NSFilePosixPermissions: @(archive_entry_perm(entry) & 07777 ?: 0755)}
+                    error:&error]) {
+                failure = error.localizedDescription;
+                break;
+            }
             failure = applyEntryMetadata(destination, entry);
             continue;
         }
@@ -307,7 +325,13 @@ static char *unpackDeb(const char *path, const char *prefix, const char **skip, 
             failure = [NSString stringWithFormat:@"%@ is a directory but the package ships a file", destination];
             break;
         }
-        if (![NSFileManager.defaultManager createDirectoryAtPath:destination.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions: @0755} error:&error]) { failure = error.localizedDescription; break; }
+        if (![NSFileManager.defaultManager createDirectoryAtPath:destination.stringByDeletingLastPathComponent
+                                     withIntermediateDirectories:YES
+                                                      attributes:@{NSFilePosixPermissions: @0755}
+                                                           error:&error]) {
+            failure = error.localizedDescription;
+            break;
+        }
         NSString *staging = [destination stringByAppendingString:@".dpkg-new"];
         unlink(staging.fileSystemRepresentation);
         const char *hardlink = archive_entry_hardlink(entry);
@@ -380,7 +404,9 @@ static char *tarEntryText(const char *path, const char *entry_name) {
             NSString *name = entryName(archive_entry_pathname(entry)).stringByStandardizingPath;
             if (!name) continue;
             if ([name hasPrefix:@"./"]) name = [name substringFromIndex:2];
-            if (![name isEqualToString:[NSString stringWithUTF8String:entry_name]] || archive_entry_size(entry) > 65536) continue;
+            if (![name isEqualToString:[NSString stringWithUTF8String:entry_name]]
+                || archive_entry_size(entry) > 65536)
+                continue;
             NSString *failure = nil;
             NSData *body = readMember(reader, entry, &failure);
             if (body) text = strndup(body.bytes, body.length);

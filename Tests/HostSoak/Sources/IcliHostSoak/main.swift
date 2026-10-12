@@ -147,7 +147,13 @@ let domain = "dev.owngoal.icli.HostSoak"
 let cfDomain = domain as CFString
 let cfUser = "mobile" as CFString
 CFPreferencesSetValue("nan" as CFString, NSNumber(value: Double.nan), cfDomain, cfUser, kCFPreferencesAnyHost)
-CFPreferencesSetValue("list" as CFString, [NSNumber(value: Double.infinity)] as CFArray, cfDomain, cfUser, kCFPreferencesAnyHost)
+CFPreferencesSetValue(
+    "list" as CFString,
+    [NSNumber(value: Double.infinity)] as CFArray,
+    cfDomain,
+    cfUser,
+    kCFPreferencesAnyHost
+)
 CFPreferencesSynchronize(cfDomain, cfUser, kCFPreferencesAnyHost)
 let preference = try readPreference(domain: domain, key: nil, user: .mobile)
 check("nan_preference", encodable(preference), preference)

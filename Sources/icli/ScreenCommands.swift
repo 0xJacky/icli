@@ -5,7 +5,10 @@ import IcliKit
 struct Screen: ParsableCommand {
     static var configuration = CommandConfiguration(
         abstract: "Touch, screenshot, OCR",
-        subcommands: [Tap.self, Swipe.self, LongPress.self, DoubleTap.self, Drag.self, Touch.self, TouchSequence.self, Shot.self, Info.self, OCR.self, Describe.self],
+        subcommands: [
+            Tap.self, Swipe.self, LongPress.self, DoubleTap.self, Drag.self, Touch.self,
+            TouchSequence.self, Shot.self, Info.self, OCR.self, Describe.self
+        ],
     )
 }
 

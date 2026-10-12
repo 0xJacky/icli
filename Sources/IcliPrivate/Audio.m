@@ -23,7 +23,8 @@ static NSDictionary *audioState(id controller) {
     float volume = 0; NSString *category = nil; BOOL muted = NO;
     if (![controller respondsToSelector:getVolume] || ![controller respondsToSelector:getMute] ||
         !((BOOL(*)(id,SEL,float *,NSString **))objc_msgSend)(controller,getVolume,&volume,&category) ||
-        !((BOOL(*)(id,SEL,BOOL *))objc_msgSend)(controller,getMute,&muted)) return @{@"error": @"active audio state unavailable"};
+        !((BOOL(*)(id,SEL,BOOL *))objc_msgSend)(controller,getMute,&muted))
+        return @{@"error": @"active audio state unavailable"};
     return @{@"active_volume": @(volume), @"active_category": category ?: @"", @"active_muted": @(muted)};
 }
 char *icli_active_audio_json(void) { return icli_json(audioState(audioController())); }

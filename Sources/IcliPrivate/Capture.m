@@ -185,7 +185,10 @@ char *icli_capture_packets_json(
     struct ifreq request = {0};
     strlcpy(request.ifr_name, interface, sizeof(request.ifr_name));
     unsigned immediate = 1, bufferLength = 0, dlt = 0;
-    if (ioctl(fd, BIOCSETIF, &request) < 0 || ioctl(fd, BIOCIMMEDIATE, &immediate) < 0 || ioctl(fd, BIOCGBLEN, &bufferLength) < 0 || ioctl(fd, BIOCGDLT, &dlt) < 0) {
+    if (ioctl(fd, BIOCSETIF, &request) < 0
+        || ioctl(fd, BIOCIMMEDIATE, &immediate) < 0
+        || ioctl(fd, BIOCGBLEN, &bufferLength) < 0
+        || ioctl(fd, BIOCGDLT, &dlt) < 0) {
         int error = errno;
         close(fd);
         return icli_json(@{

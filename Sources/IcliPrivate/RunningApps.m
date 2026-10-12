@@ -13,7 +13,10 @@ extern int proc_pidpath(int pid, void *buffer, uint32_t buffersize);
 
 char *icli_runningboard_apps_json(void) {
     @autoreleasepool {
-        void *framework = dlopen("/System/Library/PrivateFrameworks/RunningBoardServices.framework/RunningBoardServices", RTLD_NOW);
+        void *framework = dlopen(
+            "/System/Library/PrivateFrameworks/RunningBoardServices.framework/RunningBoardServices",
+            RTLD_NOW
+        );
         Class identifierClass = NSClassFromString(@"RBSProcessIdentifier");
         Class handleClass = NSClassFromString(@"RBSProcessHandle");
         SEL identifierSelector = NSSelectorFromString(@"identifierWithPid:");
@@ -46,8 +49,12 @@ char *icli_runningboard_apps_json(void) {
             if (!app || strchr(app + 5, '/')) continue;
             @try {
                 id identifier = ((id (*)(id, SEL, int))objc_msgSend)(identifierClass, identifierSelector, pid);
-                id handle = ((id (*)(id, SEL, id, NSError **))objc_msgSend)(handleClass, handleSelector,
-                                                                             identifier, NULL);
+                id handle = ((id (*)(id, SEL, id, NSError **))objc_msgSend)(
+                    handleClass,
+                    handleSelector,
+                    identifier,
+                    NULL
+                );
                 id state = [handle valueForKey:@"currentState"];
                 if (![state respondsToSelector:@selector(isRunning)] ||
                     !((BOOL (*)(id, SEL))objc_msgSend)(state, @selector(isRunning))) continue;

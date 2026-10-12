@@ -54,7 +54,8 @@ extern const char *xpc_strerror(int error);
 /// strings are decoded leniently and a non-finite double becomes a string.
 static id objectFromXPC(xpc_object_t value) {
     xpc_type_t type = xpc_get_type(value);
-    if (type == XPC_TYPE_STRING) return icli_system_string(xpc_string_get_string_ptr(value), xpc_string_get_length(value));
+    if (type == XPC_TYPE_STRING)
+        return icli_system_string(xpc_string_get_string_ptr(value), xpc_string_get_length(value));
     if (type == XPC_TYPE_INT64) return @(xpc_int64_get_value(value));
     if (type == XPC_TYPE_UINT64) return @(xpc_uint64_get_value(value));
     if (type == XPC_TYPE_DOUBLE) return icli_system_double(xpc_double_get_value(value));
@@ -116,7 +117,10 @@ static NSDictionary *errorsFromReply(xpc_object_t reply) {
         xpc_dictionary_apply(table, ^bool(const char *key, xpc_object_t value) {
             if (xpc_get_type(value) == XPC_TYPE_INT64) {
                 int code = (int)xpc_int64_get_value(value);
-                errors[icli_system_string(key, SIZE_MAX)] = @{@"code": @(code), @"message": icli_system_string(xpc_strerror(code), SIZE_MAX)};
+                errors[icli_system_string(key, SIZE_MAX)] = @{
+                    @"code": @(code),
+                    @"message": icli_system_string(xpc_strerror(code), SIZE_MAX)
+                };
             }
             return true;
         });
@@ -194,7 +198,8 @@ char *icli_launchd_disabled_json(void) {
     xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
     vm_size_t size = 0x100000;
     vm_address_t address = 0;
-    if (vm_allocate(mach_task_self(), &address, size, VM_FLAGS_ANYWHERE) != KERN_SUCCESS) return icli_system_json(@{@"status": @(ENOMEM)});
+    if (vm_allocate(mach_task_self(), &address, size, VM_FLAGS_ANYWHERE) != KERN_SUCCESS)
+        return icli_system_json(@{@"status": @(ENOMEM)});
     xpc_dictionary_set_value(message, "shmem", xpc_shmem_create((void *)address, size));
     xpc_dictionary_set_bool(message, "disabled", true);
     xpc_object_t reply = NULL;

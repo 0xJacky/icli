@@ -112,7 +112,13 @@ static NSDictionary *serializeElement(AXElement element, BOOL fixedSpace) {
     if (setTimeout) setTimeout(element, 0.25f);
     id value = attribute(element, 2003);
     CGRect frame = CGRectZero;
-    if (!value || !getAXValue((__bridge CFTypeRef)value, 3, &frame) || !isfinite(frame.origin.x) || !isfinite(frame.origin.y) || !isfinite(frame.size.width) || !isfinite(frame.size.height)) return nil;
+    if (!value
+        || !getAXValue((__bridge CFTypeRef)value, 3, &frame)
+        || !isfinite(frame.origin.x)
+        || !isfinite(frame.origin.y)
+        || !isfinite(frame.size.width)
+        || !isfinite(frame.size.height))
+        return nil;
     id label = attribute(element, 2001);
     id text = attribute(element, 2006);
     id identifier = attribute(element, 5019);

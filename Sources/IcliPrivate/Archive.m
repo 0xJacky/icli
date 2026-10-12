@@ -109,7 +109,8 @@ NSString *icli_archive_extract(
     int status = ARCHIVE_OK;
     while (!failure && (status = archive_read_next_header(reader, &entry)) == ARCHIVE_OK) {
         if (++*count > kArchiveEntryLimit) {
-            failure = [NSString stringWithFormat:@"archive contains more than %lu entries", (unsigned long)kArchiveEntryLimit];
+            failure = [NSString stringWithFormat:@"archive contains more than %lu entries",
+                                                 (unsigned long)kArchiveEntryLimit];
             break;
         }
         const char *rawPath = archive_entry_pathname(entry);
@@ -135,14 +136,25 @@ NSString *icli_archive_extract(
             failure = @"archive entry escapes its staging directory";
             break;
         }
-        if (![NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0755} error:&error]) { failure = error.localizedDescription; break; }
+        if (![NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent
+                                     withIntermediateDirectories:YES
+                                                      attributes:@{NSFilePosixPermissions:@0755}
+                                                           error:&error]) {
+            failure = error.localizedDescription;
+            break;
+        }
         if (!parentInsideRoot(path, realRootPrefix)) {
             failure = @"archive entry escapes its staging directory";
             break;
         }
         if (entries) [entries addObject:icli_archive_entry_info(entry, relative)];
         if (type == AE_IFDIR) {
-            if (![NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@(archive_entry_perm(entry) & 0777 ?: 0755)} error:&error]) failure = error.localizedDescription;
+            if (![NSFileManager.defaultManager
+                    createDirectoryAtPath:path
+                    withIntermediateDirectories:YES
+                    attributes:@{NSFilePosixPermissions:@(archive_entry_perm(entry) & 0777 ?: 0755)}
+                    error:&error])
+                failure = error.localizedDescription;
         } else if (type == AE_IFLNK) {
             const char *rawTarget = archive_entry_symlink(entry);
             NSString *target = rawTarget ? [NSString stringWithUTF8String:rawTarget] : nil;
@@ -158,7 +170,8 @@ NSString *icli_archive_extract(
             if (archive_entry_size(entry) < 0) { failure = @"archive entry has an invalid size"; break; }
             if ((uint64_t)archive_entry_size(entry) > kArchiveByteLimit) {
                 failure = [NSString stringWithFormat:@"archive entry %@ is %@",
-                    relative, overLimit((uint64_t)archive_entry_size(entry))];
+                    relative,
+                    overLimit((uint64_t)archive_entry_size(entry))];
                 break;
             }
             int fd = open(
