@@ -103,6 +103,10 @@ char *icli_app_registration_json(const char *path);
 /// group identifiers, entitlements, settings bundle), with each app's plug-ins
 /// under "plugins". NULL when LaunchServices cannot be asked.
 char *icli_app_records_plist(void);
+/// The record of the app registered under one bundle identifier, in the form
+/// of icli_app_records_plist's entries: an empty dictionary when none is,
+/// NULL when LaunchServices cannot be asked.
+char *icli_app_record_plist(const char *bundle_id);
 /// A bundle path in the form LaunchServices reports it: symlinks in every
 /// existing component resolved, /private/var as /var.
 char *icli_normalized_app_path(const char *path);

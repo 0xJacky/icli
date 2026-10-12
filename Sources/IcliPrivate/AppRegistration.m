@@ -156,28 +156,47 @@ static NSDictionary *registrationOfProxy(id proxy, NSString *bundleID) {
     return record;
 }
 
+/// An app's record with its plug-ins under "plugins".
+static NSDictionary *recordOfApp(id proxy, NSString *bundleID) {
+    NSMutableDictionary *record = [registrationOfProxy(proxy, bundleID) mutableCopy];
+    NSMutableArray *plugIns = [NSMutableArray array];
+    id registeredPlugIns = icli_ls_value(proxy, @"plugInKitPlugins");
+    for (id plugIn in [registeredPlugIns isKindOfClass:NSArray.class] ? registeredPlugIns : @[]) {
+        NSString *identifier = icli_ls_string(icli_ls_value(plugIn, @"pluginIdentifier"));
+        if (identifier) [plugIns addObject:registrationOfProxy(plugIn, identifier)];
+    }
+    record[@"plugins"] = plugIns;
+    return record;
+}
+
+static char *propertyListString(id object) {
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:object
+                                                              format:NSPropertyListXMLFormat_v1_0
+                                                             options:0
+                                                               error:nil];
+    return data ? strndup(data.bytes, data.length) : NULL;
+}
+
 char *icli_app_records_plist(void) {
     id ws = icli_ls_workspace();
     if (![ws respondsToSelector:@selector(allInstalledApplications)]) return NULL;
     NSMutableArray *records = [NSMutableArray array];
     for (id proxy in [ws allInstalledApplications]) {
         NSString *bundleID = proxyBundleID(proxy);
-        if (!bundleID) continue;
-        NSMutableDictionary *record = [registrationOfProxy(proxy, bundleID) mutableCopy];
-        NSMutableArray *plugIns = [NSMutableArray array];
-        id registeredPlugIns = icli_ls_value(proxy, @"plugInKitPlugins");
-        for (id plugIn in [registeredPlugIns isKindOfClass:NSArray.class] ? registeredPlugIns : @[]) {
-            NSString *identifier = icli_ls_string(icli_ls_value(plugIn, @"pluginIdentifier"));
-            if (identifier) [plugIns addObject:registrationOfProxy(plugIn, identifier)];
-        }
-        record[@"plugins"] = plugIns;
-        [records addObject:record];
+        if (bundleID) [records addObject:recordOfApp(proxy, bundleID)];
     }
-    NSData *data = [NSPropertyListSerialization dataWithPropertyList:records
-                                                              format:NSPropertyListXMLFormat_v1_0
-                                                             options:0
-                                                               error:nil];
-    return data ? strndup(data.bytes, data.length) : NULL;
+    return propertyListString(records);
+}
+
+char *icli_app_record_plist(const char *bundle_id) {
+    if (!bundle_id) return NULL;
+    icli_ls_workspace();
+    Class proxyClass = NSClassFromString(@"LSApplicationProxy");
+    if (![proxyClass respondsToSelector:@selector(applicationProxyForIdentifier:)]) return NULL;
+    id proxy = [proxyClass applicationProxyForIdentifier:@(bundle_id)];
+    // A proxy comes back for any identifier; an installed app has a bundle.
+    if (!icli_ls_value(proxy, @"bundleURL")) return propertyListString(@{});
+    return propertyListString(recordOfApp(proxy, @(bundle_id)));
 }
 
 char *icli_normalized_app_path(const char *path) {

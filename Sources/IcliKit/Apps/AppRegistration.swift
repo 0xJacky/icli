@@ -44,9 +44,15 @@ func registrationPlan(
     }
     let directory = path + "/PlugIns"
     let names = (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
+    // Only app extensions: LaunchServices records nothing else under PlugIns
+    // (a resource bundle, a framework, an .appex without NSExtension), so
+    // registering one makes a container for nothing and leaves a record that
+    // never matches the plan.
     let plugIns = names.sorted().compactMap { name -> RegistrationPlan.Bundle? in
         let plugIn = directory + "/" + name
-        guard let plugInInfo = NSDictionary(contentsOfFile: plugIn + "/Info.plist") as? [String: Any],
+        guard name.hasSuffix(".appex"),
+              let plugInInfo = NSDictionary(contentsOfFile: plugIn + "/Info.plist") as? [String: Any],
+              plugInInfo["NSExtension"] is [String: Any],
               let plugInID = plugInInfo["CFBundleIdentifier"] as? String, !plugInID.isEmpty
         else {
             return nil
@@ -329,6 +335,23 @@ private func bundleDifference(
     return nil
 }
 
+/// LaunchServices' record of the app at `path` registered as `bundleID`.
+/// Reads that one record; the full list only when the identifier's record is
+/// elsewhere, as while a moved app has a record at each path.
+func registeredRecord(_ bundleID: String, at path: String) throws -> [String: Any]? {
+    let path = normalizedAppPath(path)
+    guard let xml = takeCString(icli_app_record_plist(bundleID)),
+          let record = try PropertyListSerialization.propertyList(from: Data(xml.utf8), format: nil)
+          as? [String: Any]
+    else {
+        throw IcliError.failed("LaunchServices application record unavailable")
+    }
+    if record["path"] as? String == path {
+        return record
+    }
+    return try RegisteredApps().byPath[path]
+}
+
 /// Registers `plan` and reads LaunchServices' record of the app back, for up
 /// to a second while it does not record all of the plan yet. Returns the
 /// record, or nil when LaunchServices does not list the app at its path.
@@ -338,13 +361,12 @@ func registerPlan(_ plan: RegistrationPlan, created: inout [CreatedContainer]) t
     guard let xml = String(data: data, encoding: .utf8), icli_register_app_dictionary(xml) else {
         throw IcliError.failed("LaunchServices refused the registration of \(plan.app.path)")
     }
-    let path = normalizedAppPath(plan.app.path)
     var record: [String: Any]?
     for attempt in 0 ..< 10 {
         if attempt > 0 {
             usleep(100_000)
         }
-        record = try RegisteredApps().byPath[path]
+        record = try registeredRecord(plan.app.bundleID, at: plan.app.path)
         if let record, registrationDifference(record, plan) == nil {
             break
         }
@@ -505,13 +527,23 @@ public func refreshApps(directory: String?) throws -> [String: Any] {
     }
 
     let after = try RegisteredApps()
-    var unverified = plans.sorted(by: { $0.key < $1.key }).compactMap { path, plan -> String? in
-        guard let record = after.byPath[normalizedAppPath(path)], registrationDifference(record, plan) == nil else {
-            return path
+    var problems = failed.map { "\($0) could not be registered or unregistered" }
+    var unverified: [String] = []
+    for (path, plan) in plans.sorted(by: { $0.key < $1.key }) {
+        guard let record = after.byPath[normalizedAppPath(path)] else {
+            unverified.append(path)
+            problems.append("LaunchServices does not list \(path)")
+            continue
         }
-        return nil
+        if let difference = registrationDifference(record, plan) {
+            unverified.append(path)
+            problems.append("LaunchServices did not record the \(difference) of \(path)")
+        }
     }
-    unverified += unregistered.filter { after.byPath[$0] != nil }
+    for path in unregistered where after.byPath[path] != nil {
+        unverified.append(path)
+        problems.append("LaunchServices still lists \(path)")
+    }
     let result: [String: Any] = [
         "directory": root,
         "registered": registered,
@@ -524,7 +556,7 @@ public func refreshApps(directory: String?) throws -> [String: Any] {
     guard failed.isEmpty, unverified.isEmpty else {
         throw IcliError.commandFailed(result.merging([
             "error": "refresh_incomplete",
-            "message": "\(failed.count) failed, \(unverified.count) unverified",
+            "message": problems.joined(separator: "; "),
         ]) { $1 })
     }
     return result
