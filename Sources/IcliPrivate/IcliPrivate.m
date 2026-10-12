@@ -22,15 +22,8 @@ OBJC_EXTERN UIImage *_UICreateScreenUIImage(void) NS_RETURNS_RETAINED;
 #import <sys/sysctl.h>
 #import <IOKit/IOKitLib.h>
 
-// libSystem exports it; the SDK ships no libproc.h.
-extern int proc_pidpath(int pid, void *buffer, uint32_t buffersize);
-
 @interface NSObject (IcliLS)
 - (BOOL)openSensitiveURL:(NSURL *)url withOptions:(id)options;
-- (BOOL)openURL:(NSURL *)url withOptions:(id)options;
-- (NSArray *)applicationsAvailableForOpeningURL:(NSURL *)url;
-- (NSArray *)applicationsAvailableForHandlingURLScheme:(NSString *)scheme;
-- (id)operationToOpenResource:(NSURL *)url usingApplication:(NSString *)bundleID userInfo:(id)userInfo;
 @end
 
 typedef void *IOHIDEventRef;
@@ -973,118 +966,6 @@ bool icli_open_url(const char *url) {
     id ws = icli_ls_workspace();
     if (ws && [ws respondsToSelector:@selector(openSensitiveURL:withOptions:)]) {
         return [ws openSensitiveURL:u withOptions:nil];
-    }
-    return false;
-}
-
-char *icli_runningboard_apps_json(void) {
-    @autoreleasepool {
-        void *framework = dlopen("/System/Library/PrivateFrameworks/RunningBoardServices.framework/RunningBoardServices", RTLD_NOW);
-        Class identifierClass = NSClassFromString(@"RBSProcessIdentifier");
-        Class handleClass = NSClassFromString(@"RBSProcessHandle");
-        SEL identifierSelector = NSSelectorFromString(@"identifierWithPid:");
-        SEL handleSelector = NSSelectorFromString(@"handleForIdentifier:error:");
-        if (!framework || ![identifierClass respondsToSelector:identifierSelector] ||
-            ![handleClass respondsToSelector:handleSelector]) {
-            return icli_json_or_empty(@{@"error": @"RunningBoard process handles unavailable"});
-        }
-
-        int mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL};
-        size_t length = 0;
-        if (sysctl(mib, 3, NULL, &length, NULL, 0) != 0) {
-            return icli_json_or_empty(@{@"error": @(strerror(errno))});
-        }
-        length += 64 * sizeof(struct kinfo_proc);
-        struct kinfo_proc *processes = calloc(1, length);
-        if (!processes || sysctl(mib, 3, processes, &length, NULL, 0) != 0) {
-            int error = errno;
-            free(processes);
-            return icli_json_or_empty(@{@"error": processes ? @(strerror(error)) : @"process allocation failed"});
-        }
-
-        NSMutableArray *apps = [NSMutableArray array];
-        for (size_t i = 0; i < length / sizeof(struct kinfo_proc); i++) {
-            pid_t pid = processes[i].kp_proc.p_pid;
-            char path[4096] = {0};
-            if (pid <= 0 || proc_pidpath(pid, path, sizeof(path)) <= 0) continue;
-            // Exclude helpers and extensions nested inside an application bundle.
-            char *app = strstr(path, ".app/");
-            if (!app || strchr(app + 5, '/')) continue;
-            @try {
-                id identifier = ((id (*)(id, SEL, int))objc_msgSend)(identifierClass, identifierSelector, pid);
-                id handle = ((id (*)(id, SEL, id, NSError **))objc_msgSend)(handleClass, handleSelector,
-                                                                             identifier, NULL);
-                id state = [handle valueForKey:@"currentState"];
-                if (![state respondsToSelector:@selector(isRunning)] ||
-                    !((BOOL (*)(id, SEL))objc_msgSend)(state, @selector(isRunning))) continue;
-                NSString *bundleID = [[handle valueForKey:@"identity"] valueForKey:@"embeddedApplicationIdentifier"];
-                if (![bundleID isKindOfClass:NSString.class] || !bundleID.length) continue;
-                [apps addObject:@{@"bundle_id": bundleID, @"pid": @(pid), @"executable": @(path)}];
-            } @catch (NSException *exception) {
-                (void)exception;
-            }
-        }
-        free(processes);
-        return icli_json_or_empty(@{@"apps": apps});
-    }
-}
-
-char *icli_app_handlers_json(const char *url_or_scheme) {
-    if (!url_or_scheme) {
-        return icli_json_or_empty(@{@"error": @"missing url"});
-    }
-    NSString *arg = [NSString stringWithUTF8String:url_or_scheme];
-    id ws = icli_ls_workspace();
-    NSArray *proxies = nil;
-    NSString *scheme = arg;
-    if ([arg containsString:@"://"]) {
-        NSURL *url = [NSURL URLWithString:arg];
-        scheme = url.scheme ?: arg;
-        if ([ws respondsToSelector:@selector(applicationsAvailableForOpeningURL:)]) {
-            proxies = [ws applicationsAvailableForOpeningURL:url];
-        }
-    }
-    if (!proxies && [ws respondsToSelector:@selector(applicationsAvailableForHandlingURLScheme:)]) {
-        proxies = [ws applicationsAvailableForHandlingURLScheme:scheme];
-    }
-    NSMutableArray *apps = [NSMutableArray array];
-    for (id proxy in proxies) {
-        [apps addObject:icli_ls_app_dictionary(proxy)];
-    }
-    return icli_json_or_empty(@{
-        @"url": arg,
-        @"scheme": scheme,
-        @"apps": apps,
-        @"count": @(apps.count),
-    });
-}
-
-bool icli_open_url_in_app(const char *url, const char *bundle_id) {
-    if (!url) {
-        return false;
-    }
-    if (!bundle_id || !bundle_id[0]) {
-        return icli_open_url(url);
-    }
-    NSURL *u = [NSURL URLWithString:[NSString stringWithUTF8String:url]];
-    NSString *bid = [NSString stringWithUTF8String:bundle_id];
-    if (!u || !bid.length) {
-        return false;
-    }
-    id ws = icli_ls_workspace();
-    if ([ws respondsToSelector:@selector(operationToOpenResource:usingApplication:userInfo:)]) {
-        id op = [ws operationToOpenResource:u usingApplication:bid userInfo:nil];
-        if ([op respondsToSelector:@selector(start)]) {
-            [op performSelector:@selector(start)];
-            return true;
-        }
-    }
-    NSDictionary *opts = @{@"LSApplicationIdentifier": bid, @"bundleid": bid};
-    if ([ws respondsToSelector:@selector(openSensitiveURL:withOptions:)]) {
-        return [ws openSensitiveURL:u withOptions:opts];
-    }
-    if ([ws respondsToSelector:@selector(openURL:withOptions:)]) {
-        return [ws openURL:u withOptions:opts];
     }
     return false;
 }
