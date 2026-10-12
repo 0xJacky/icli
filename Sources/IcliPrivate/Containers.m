@@ -84,7 +84,6 @@ char *icli_container_destroy_json(const char *kind, const char *identifier) {
 }
 
 bool icli_register_app_dictionary(const char *plist_xml) {
-    icli_private_init();
     if (!plist_xml) return false;
     NSData *data = [NSData dataWithBytes:plist_xml length:strlen(plist_xml)];
     NSDictionary *dict = [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:nil];

@@ -43,7 +43,7 @@ finally:
 print(result.stdout)
 if result.stderr:
     print(result.stderr)
-report = json.loads(result.stdout) if result.stdout.strip().startswith('{') else {'exit': result.returncode, 'stderr': result.stderr}
+report = json.loads(result.stdout) if result.stdout.strip().startswith('{') else {'stderr': result.stderr}
 report['exit'] = result.returncode
 (root / args.report).write_text(json.dumps(report, indent=2) + '\n')
 raise SystemExit(result.returncode)

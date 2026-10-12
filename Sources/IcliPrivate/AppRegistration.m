@@ -40,7 +40,6 @@ BOOL icli_ls_register_containerized(id workspace, NSDictionary *info, NSError **
 }
 
 bool icli_uninstall_app(const char *bundle_id) {
-    icli_private_init();
     if (!bundle_id || !bundle_id[0]) {
         return false;
     }
@@ -55,21 +54,21 @@ static NSString *normalizedAppPath(NSString *path);
 static NSDictionary<NSString *, id> *registeredAppsByPath(void);
 static NSString *proxyBundleID(id proxy);
 
+/// Unregisters the application at `path`, whose registered record is `proxy` (nil when none).
+static BOOL unregisterProxy(id ws, id proxy, NSString *path) {
+    if (![ws respondsToSelector:@selector(unregisterApplication:)]) return NO;
+    // Keep LaunchServices' exact directory URL, including after the bundle
+    // disappears. Rebuilding it from a missing path produces a file URL.
+    NSURL *url = icli_ls_value(proxy, @"bundleURL");
+    if (!url) url = [[NSURL fileURLWithPath:path isDirectory:YES] URLByResolvingSymlinksInPath];
+    return [ws unregisterApplication:url];
+}
+
 bool icli_unregister_app(const char *path) {
-    icli_private_init();
     if (!path) {
         return false;
     }
-    id ws = icli_ls_workspace();
-    if (![ws respondsToSelector:@selector(unregisterApplication:)]) {
-        return false;
-    }
-    // Keep LaunchServices' exact directory URL, including after the bundle
-    // disappears. Rebuilding it from a missing path produces a file URL.
-    id proxy = registeredAppsByPath()[normalizedAppPath(@(path))];
-    NSURL *url = icli_ls_value(proxy, @"bundleURL");
-    if (!url) url = [[NSURL fileURLWithPath:@(path) isDirectory:YES] URLByResolvingSymlinksInPath];
-    return [ws unregisterApplication:url];
+    return unregisterProxy(icli_ls_workspace(), registeredAppsByPath()[normalizedAppPath(@(path))], @(path));
 }
 
 /// Comparable form of a bundle path. LaunchServices reports resolved paths
@@ -116,7 +115,6 @@ static NSDictionary<NSString *, id> *registeredAppsByPath(void) {
 }
 
 char *icli_app_registration_json(const char *path) {
-    icli_private_init();
     if (!path) return icli_json_or_empty(@{@"registered": @NO});
     NSDictionary *apps = registeredAppsByPath();
     if (!apps) return icli_json_or_empty(@{@"error": @"LaunchServices application list unavailable"});
@@ -159,7 +157,6 @@ static NSDictionary *registrationOfProxy(id proxy, NSString *bundleID) {
 }
 
 char *icli_app_records_plist(void) {
-    icli_private_init();
     id ws = icli_ls_workspace();
     if (![ws respondsToSelector:@selector(allInstalledApplications)]) return NULL;
     NSMutableArray *records = [NSMutableArray array];
@@ -199,14 +196,16 @@ static BOOL isDirectChild(NSString *path, NSString *prefix) {
 
 /// Unregisters every registered application whose bundle lives directly in `directory`.
 char *icli_apps_unregister_directory_json(const char *directory) {
-    icli_private_init();
     if (!directory) return icli_json_or_empty(@{@"error": @"directory required"});
     NSString *root = normalizedAppPath(@(directory));
     NSString *prefix = [root stringByAppendingString:@"/"];
     NSMutableArray *unregistered = [NSMutableArray array], *failed = [NSMutableArray array];
-    for (NSString *path in registeredAppsByPath()) {
+    id ws = icli_ls_workspace();
+    NSDictionary *apps = registeredAppsByPath();
+    for (NSString *path in apps) {
         if (!isDirectChild(path, prefix)) continue;
-        if (icli_unregister_app(path.UTF8String)) [unregistered addObject:path];
+        if (unregisterProxy(ws, apps[path], path))
+            [unregistered addObject:path];
         else [failed addObject:path];
     }
     NSDictionary *after = registeredAppsByPath();

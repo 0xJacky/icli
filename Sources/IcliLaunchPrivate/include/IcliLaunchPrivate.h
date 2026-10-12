@@ -6,8 +6,6 @@
 // app forward. Foundation only; SpringBoardServices, LaunchServices and
 // RunningBoardServices are looked up at runtime, so nothing here links UIKit.
 
-#include "IcliSystemPrivate.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif

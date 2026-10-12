@@ -109,9 +109,8 @@ static NSString *randomSalt(void) {
     return salt;
 }
 
-/// Writes `data` to `path` through a sibling temp file, keeping the original mode and owner.
-static NSString *replaceFile(NSString *path, NSData *data, struct stat *original) {
-    NSString *temporary = [path stringByAppendingFormat:@".icli-%@", NSUUID.UUID.UUIDString];
+/// Creates `temporary` holding `data` with the original mode and owner; removes it on failure.
+static NSString *writeStagedFile(NSString *temporary, NSData *data, struct stat *original) {
     int fd = open(temporary.fileSystemRepresentation, O_WRONLY | O_CREAT | O_EXCL, original->st_mode & 07777);
     if (fd < 0) return @(strerror(errno));
     NSString *failure = nil;
@@ -119,9 +118,19 @@ static NSString *replaceFile(NSString *path, NSData *data, struct stat *original
     if (!failure && fchown(fd, original->st_uid, original->st_gid) != 0) failure = @(strerror(errno));
     if (!failure && fsync(fd) != 0) failure = @(strerror(errno));
     close(fd);
-    if (!failure && rename(temporary.fileSystemRepresentation, path.fileSystemRepresentation) != 0)
-        failure = @(strerror(errno));
     if (failure) unlink(temporary.fileSystemRepresentation);
+    return failure;
+}
+
+/// Writes `data` to `path` through a sibling temp file, keeping the original mode and owner.
+static NSString *replaceFile(NSString *path, NSData *data, struct stat *original) {
+    NSString *temporary = [path stringByAppendingFormat:@".icli-%@", NSUUID.UUID.UUIDString];
+    NSString *failure = writeStagedFile(temporary, data, original);
+    if (failure) return failure;
+    if (rename(temporary.fileSystemRepresentation, path.fileSystemRepresentation) != 0) {
+        failure = @(strerror(errno));
+        unlink(temporary.fileSystemRepresentation);
+    }
     return failure;
 }
 
@@ -132,7 +141,7 @@ static NSString *updateHashDatabase(NSString *path, NSString *user, NSString *ha
     NSData *contents = [NSData dataWithContentsOfFile:path];
     if (!contents) return @"database unreadable";
     NSString *temporary = [path stringByAppendingFormat:@".icli-%@", NSUUID.UUID.UUIDString];
-    NSString *failure = replaceFile(temporary, contents, &original);
+    NSString *failure = writeStagedFile(temporary, contents, &original);
     if (failure) return failure;
     DB *db = dbopen(temporary.fileSystemRepresentation, O_RDWR, 0, DB_HASH, NULL);
     if (!db) {

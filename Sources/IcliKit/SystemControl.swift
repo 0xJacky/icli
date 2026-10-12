@@ -83,8 +83,7 @@ public func environmentReport() throws -> [String: Any] {
         "basebin/.version",
         "basebin/.safe_mode",
     ].filter(present)
-    let basebinVersion = (try? String(contentsOfFile: root.jbrootPath("/basebin/.version"), encoding: .utf8))?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let basebinVersion = installedBaseBinVersion()
     let tools = ["dpkg", "apt-get", "tcpdump", "sudo", "launchctl", "uicache", "sbreload", "jbctl"]
         .reduce(into: [String: Bool]()) { $0[$1] = manager.isExecutableFile(atPath: root.binary($1)) }
     let version = ProcessInfo.processInfo.operatingSystemVersion
@@ -126,12 +125,21 @@ public func environmentReport() throws -> [String: Any] {
     ]
 }
 
+private var installedBaseBinPath: String {
+    JailbreakRoot.current.jbrootPath("/basebin/.version")
+}
+
+/// The installed BaseBin version marker, or nil when it is absent.
+private func installedBaseBinVersion() -> String? {
+    (try? String(contentsOfFile: installedBaseBinPath, encoding: .utf8))?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
 /// Compares the installed BaseBin version marker with `basebin/.version`
 /// inside a bundled archive. Either side may be absent.
 public func compareBaseBin(bundled archive: String?) throws -> [String: Any] {
-    let installedPath = JailbreakRoot.current.jbrootPath("/basebin/.version")
-    let installed = (try? String(contentsOfFile: installedPath, encoding: .utf8))?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let installedPath = installedBaseBinPath
+    let installed = installedBaseBinVersion()
     var payload: [String: Any] = [
         "installed_path": installedPath,
         "installed": installed ?? "",

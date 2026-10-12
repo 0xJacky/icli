@@ -359,16 +359,16 @@ public func capturePackets(
         throw IcliError.failed("Provide a network interface name.")
     }
     let out = output ?? JailbreakRoot.current.scratchDirectory() + "/icli-\(UUID().uuidString).pcap"
-    guard let raw = takeCString(icli_capture_packets_json(interface, filter, seconds, out)),
-          let result = try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]
-    else {
-        throw IcliError.failed("invalid capture response")
-    }
-    if let error = result["error"] as? String {
+    var payload: [String: Any]
+    do {
+        payload = try decodeBridgeJSON(
+            takeCString(icli_capture_packets_json(interface, filter, seconds, out)),
+            "capture response",
+        )
+    } catch {
         try? FileManager.default.removeItem(atPath: out)
-        throw IcliError.failed(error)
+        throw error
     }
-    var payload = result
     payload["seconds"] = seconds
     payload["file_bytes"] = (try? FileManager.default.attributesOfItem(atPath: out)[.size] as? Int) ?? 0
     return payload

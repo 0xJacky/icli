@@ -7,6 +7,9 @@
 #import <stdlib.h>
 #import <unistd.h>
 
+// libSystem exports it; the SDK ships no libproc.h.
+extern int proc_pidpath(int pid, void *buffer, uint32_t buffersize);
+
 // AXRuntime numeric attributes: verified on the rootless TestHost and compared
 // with witchan/ios-mcp (8f46b68). String AX attributes are absent on this runtime.
 typedef CFTypeRef AXElement;
@@ -93,9 +96,8 @@ static id attribute(AXElement element, uint32_t key) {
 // SpringBoard reports frames in the fixed (portrait) space; apps report them
 // in the upright interface, which is what taps and screenshots use.
 static BOOL framesInFixedSpace(pid_t pid) {
-    int (*pidPath)(int, void *, uint32_t) = dlsym(RTLD_DEFAULT, "proc_pidpath");
     char path[4096] = {0};
-    if (!pidPath || pidPath(pid, path, sizeof(path)) <= 0) return NO;
+    if (proc_pidpath(pid, path, sizeof(path)) <= 0) return NO;
     return strcmp(path, "/System/Library/CoreServices/SpringBoard.app/SpringBoard") == 0;
 }
 

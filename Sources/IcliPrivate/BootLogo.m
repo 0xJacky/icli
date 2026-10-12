@@ -18,7 +18,6 @@ char *icli_bootlogo_render_json(
     double mark_points
 ) {
     if (!mark_path || !output_path) return icli_json(@{@"error": @"mark and output paths required"});
-    icli_private_init();
     double scale = UIScreen.mainScreen.nativeScale;
     if (width <= 0 || height <= 0) {
         CGSize native = UIScreen.mainScreen.nativeBounds.size;

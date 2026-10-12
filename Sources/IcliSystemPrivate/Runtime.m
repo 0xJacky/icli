@@ -11,6 +11,8 @@
 #import <sys/sysctl.h>
 #import <os/lock.h>
 
+extern int proc_pidpath(int pid, void *buffer, uint32_t buffersize);
+
 // This process uses physical paths. Bootstrap tools may use vroot paths.
 // Resolve APIs at runtime so both package layouts contain the same Mach-O.
 // The answer is kept, but a long-running host may have started before the
@@ -101,11 +103,11 @@ static void resolveBootstrapLocked(void) {
 
 /// Call with bootstrapLock held; nil when no bootstrap was found.
 static NSString *bootstrapLayoutLocked(void) {
+    if ([rootfsPrefix isEqual:@"/rootfs"] || [bootstrapPrefix containsString:@".jbroot-"]) return @"roothide";
+    if (![bootstrapPrefix isEqual:@"/"]) return @"rootless";
     struct statfs rootMount;
     BOOL rootWritable = statfs("/", &rootMount) == 0 && !(rootMount.f_flags & MNT_RDONLY);
-    return [rootfsPrefix isEqual:@"/rootfs"] || [bootstrapPrefix containsString:@".jbroot-"]
-        ? @"roothide"
-        : ([bootstrapPrefix isEqual:@"/"] ? (rootWritable ? @"rootful" : nil) : @"rootless");
+    return rootWritable ? @"rootful" : nil;
 }
 
 /// Resolves the bootstrap, or resolves it again when the last answer found
@@ -166,14 +168,15 @@ char *icli_processes_json(void) {
     struct kinfo_proc *processes = calloc(1, length);
     if (!processes) return icli_system_json(@{@"error": @"process allocation failed"});
     if (sysctl(mib, 3, processes, &length, NULL, 0)) {
-        int error = errno; free(processes); return icli_system_json(@{@"error": @(strerror(error))});
+        int error = errno;
+        free(processes);
+        return icli_system_json(@{@"error": @(strerror(error))});
     }
-    int (*pidPath)(int, void *, uint32_t) = dlsym(RTLD_DEFAULT, "proc_pidpath");
     NSMutableArray *rows = [NSMutableArray array];
     for (size_t i = 0; i < length / sizeof(struct kinfo_proc); i++) {
         pid_t pid = processes[i].kp_proc.p_pid;
         char path[4096] = {0};
-        if (pidPath) pidPath(pid, path, sizeof(path));
+        proc_pidpath(pid, path, sizeof(path));
         NSString *name = icli_system_string(processes[i].kp_proc.p_comm, sizeof(processes[i].kp_proc.p_comm));
         [rows addObject:@{@"pid": @(pid), @"name": name, @"executable": icli_system_string(path, sizeof(path))}];
     }

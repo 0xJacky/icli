@@ -182,7 +182,7 @@ private func recognizeImage(path: String, languages: [String], minConfidence: Fl
     let pointSize = pointSizeMatching(image: cgImage)
     do {
         let blocks = try visionBlocks(
-            in: downsampledCGImage(image, maxEdge: 1600) ?? cgImage,
+            in: downsampledCGImage(cgImage, maxEdge: 1600),
             languages: languages,
             minConfidence: minConfidence,
             pointSize: pointSize,
@@ -363,9 +363,6 @@ public func waitForElement(
             ]
         }
         let remaining = timeout - (ProcessInfo.processInfo.systemUptime - start)
-        if remaining <= 0 {
-            break
-        }
         Thread.sleep(forTimeInterval: min(interval, remaining))
     } while ProcessInfo.processInfo.systemUptime - start <= timeout
     throw IcliError.failed("element wait timed out")
@@ -400,8 +397,7 @@ private func visionBlocks(
     }
 }
 
-private func downsampledCGImage(_ image: UIImage, maxEdge: CGFloat) -> CGImage? {
-    guard let src = image.cgImage else { return nil }
+private func downsampledCGImage(_ src: CGImage, maxEdge: CGFloat) -> CGImage {
     let width = src.width
     let height = src.height
     let longEdge = max(width, height)

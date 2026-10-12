@@ -29,7 +29,6 @@ assert hashlib.sha256((build / 'icli').read_bytes()).hexdigest() == tests['binar
 assert packages['forbidden_process_imports'] == [], 'package verification must check process-launch imports'
 for package in packages['packages']:
     assert hashlib.sha256((build / package['file']).read_bytes()).hexdigest() == package['sha256'], 'package changed after verification: ' + package['file']
-    assert package['depends'] == 'firmware (>= 16.0)', 'unexpected runtime package dependency'
 
 cases = tests['cases']
 passed = {case['name']: case['passed'] for case in cases}

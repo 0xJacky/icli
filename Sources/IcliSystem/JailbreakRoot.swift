@@ -65,9 +65,7 @@ public struct JailbreakRoot: Equatable {
     }
 
     private static func detect() -> JailbreakRoot {
-        let raw = takeCString(icli_bootstrap_json()) ?? "{}"
-        let data = Data(raw.utf8)
-        let info = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        let info = (try? decodeBridgeJSON(takeCString(icli_bootstrap_json()), "bootstrap")) ?? [:]
         return JailbreakRoot(
             layout: (info["layout"] as? String).flatMap(Layout.init(rawValue:)),
             jbroot: info["jbroot"] as? String ?? "/",

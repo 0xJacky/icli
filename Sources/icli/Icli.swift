@@ -8,9 +8,6 @@ struct OutputOptions: ParsableArguments {
 
     func apply() {
         Envelope.human = human
-        if CommandLine.arguments.contains("--human") {
-            Envelope.human = true
-        }
     }
 }
 

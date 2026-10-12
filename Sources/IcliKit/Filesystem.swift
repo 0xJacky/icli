@@ -193,7 +193,8 @@ public func setPlistValue(_ path: String, key: String, json: String?) throws -> 
     let existed = stat(path, &info) == 0
     try output.write(to: URL(fileURLWithPath: path), options: .atomic)
     if existed {
-        chmod(path, info.st_mode & 0o7777); if geteuid() == 0 {
+        chmod(path, info.st_mode & 0o7777)
+        if geteuid() == 0 {
             chown(path, info.st_uid, info.st_gid)
         }
     }

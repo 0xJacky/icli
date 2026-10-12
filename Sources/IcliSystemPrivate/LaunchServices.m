@@ -33,19 +33,15 @@ id icli_ls_workspace(void) {
 }
 
 id icli_ls_value(id proxy, NSString *key) {
-    if (!proxy) {
-        return nil;
-    }
     @try {
         return [proxy valueForKey:key];
-    } @catch (NSException *ex) {
-        (void)ex;
+    } @catch (NSException *) {
         return nil;
     }
 }
 
 NSString *icli_ls_string(id value) {
-    if (!value || value == [NSNull null]) {
+    if (value == [NSNull null]) {
         return nil;
     }
     if ([value isKindOfClass:[NSString class]]) {

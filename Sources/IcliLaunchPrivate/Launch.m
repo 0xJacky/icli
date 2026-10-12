@@ -1,4 +1,5 @@
 #import "IcliLaunchPrivate.h"
+#import "IcliSystemPrivate.h"
 #import <Foundation/Foundation.h>
 #import <dlfcn.h>
 #import <notify.h>
@@ -35,7 +36,6 @@ static void icli_launch_init(void) {
 }
 
 static char *launchJSON(NSDictionary *value) {
-    if (![NSJSONSerialization isValidJSONObject:value]) return strdup("{}");
     NSData *data = [NSJSONSerialization dataWithJSONObject:value options:0 error:nil];
     return data ? strndup(data.bytes, data.length) : strdup("{}");
 }
@@ -56,9 +56,10 @@ static bool notifyFlag(const char *name) {
 // from SpringBoard's notification and SBGetScreenLockStatus together.
 IcliLockStatus icli_lock_status(void) {
     icli_launch_init();
-    IcliLockStatus st = {false, false, false};
-    st.locked = notifyFlag("com.apple.springboard.lockstate");
-    st.screen_off = notifyFlag("com.apple.springboard.hasBlankedScreen");
+    IcliLockStatus st = {
+        .locked = notifyFlag("com.apple.springboard.lockstate"),
+        .screen_off = notifyFlag("com.apple.springboard.hasBlankedScreen"),
+    };
     if (pSBSSpringBoardServerPort && pSBGetScreenLockStatus) {
         BOOL locked = NO;
         BOOL passcode = NO;
@@ -75,9 +76,6 @@ IcliLockStatus icli_lock_status(void) {
 // is locked; that answer is the result, not something to wait out.
 IcliLaunchResult icli_launch_app(const char *bundle_id) {
     icli_launch_init();
-    if (!bundle_id) {
-        return IcliLaunchRefused;
-    }
     @autoreleasepool {
         NSString *bid = [NSString stringWithUTF8String:bundle_id];
         if (pSBSLaunchApplicationWithIdentifierAndLaunchOptions &&
@@ -85,7 +83,7 @@ IcliLaunchResult icli_launch_app(const char *bundle_id) {
             return IcliLaunchAccepted;
         }
         id ws = icli_ls_workspace();
-        if (ws && [ws respondsToSelector:@selector(openApplicationWithBundleID:)] &&
+        if ([ws respondsToSelector:@selector(openApplicationWithBundleID:)] &&
             [ws openApplicationWithBundleID:bid]) {
             return IcliLaunchAccepted;
         }
@@ -94,20 +92,39 @@ IcliLaunchResult icli_launch_app(const char *bundle_id) {
     return lock.locked || lock.screen_off ? IcliLaunchLocked : IcliLaunchRefused;
 }
 
+extern int proc_pidpath(int pid, void *buffer, uint32_t buffersize);
+
+static NSString *(*pNSStringFromRBSRole)(uint8_t);
+static Class handleClass;
+static Class identifierClass;
+static SEL roleSelector;
+static SEL identifierSelector;
+static SEL handleSelector;
+
+// Separate from icli_launch_init so icli_lock_status never loads RunningBoard.
+static void icli_running_board_init(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        void *framework = dlopen(
+            "/System/Library/PrivateFrameworks/RunningBoardServices.framework/RunningBoardServices",
+            RTLD_NOW
+        );
+        if (framework) pNSStringFromRBSRole = dlsym(framework, "NSStringFromRBSRole");
+        handleClass = NSClassFromString(@"RBSProcessHandle");
+        identifierClass = NSClassFromString(@"RBSProcessIdentifier");
+        roleSelector = NSSelectorFromString(@"cpuRole");
+        identifierSelector = NSSelectorFromString(@"identifierWithPid:");
+        handleSelector = NSSelectorFromString(@"handleForIdentifier:error:");
+    });
+}
+
 // The FrontBoard focal assertion identifies the app receiving input. The
 // older SpringBoard query may be stale even while another app is on screen.
 // Setup Assistant drops its launch assertion and never takes a workspace focal
 // one, yet RunningBoard keeps its role at UserInteractiveFocal, so the role
 // decides when no assertion does.
 static NSString *runningBoardFocalApplication(void) {
-    void *framework = dlopen("/System/Library/PrivateFrameworks/RunningBoardServices.framework/RunningBoardServices", RTLD_NOW);
-    if (!framework) return nil;
-    NSString *(*roleName)(uint8_t) = dlsym(framework, "NSStringFromRBSRole");
-    SEL roleSelector = NSSelectorFromString(@"cpuRole");
-    Class handleClass = NSClassFromString(@"RBSProcessHandle");
-    Class identifierClass = NSClassFromString(@"RBSProcessIdentifier");
-    SEL identifierSelector = NSSelectorFromString(@"identifierWithPid:");
-    SEL handleSelector = NSSelectorFromString(@"handleForIdentifier:error:");
+    icli_running_board_init();
     if (![identifierClass respondsToSelector:identifierSelector] || ![handleClass respondsToSelector:handleSelector]) {
         return nil;
     }
@@ -122,19 +139,17 @@ static NSString *runningBoardFocalApplication(void) {
         free(processes);
         return nil;
     }
-    void *libproc = dlopen("/usr/lib/libproc.dylib", RTLD_NOW);
-    int (*pidPath)(int, void *, uint32_t) = libproc ? dlsym(libproc, "proc_pidpath") : NULL;
     NSMutableSet<NSString *> *focalIDs = [NSMutableSet set];
     NSMutableSet<NSString *> *focalRoleIDs = [NSMutableSet set];
     for (size_t i = 0; i < length / sizeof(struct kinfo_proc) && focalIDs.count < 2; i++) {
         pid_t pid = processes[i].kp_proc.p_pid;
         char path[4096] = {0};
         // Only app bundles can be the frontmost application.
-        if (pid <= 0 || !pidPath || pidPath(pid, path, sizeof(path)) <= 0) {
+        if (pid <= 0 || proc_pidpath(pid, path, sizeof(path)) <= 0) {
             continue;
         }
         char *app = strstr(path, ".app/");
-        if (!app || strchr(app + 5, '/')) continue;
+        if (!app || strchr(app + 5, '/') || strstr(path, "WidgetRenderer")) continue;
         // Callers poll this, launchApp ten times a second, and a host thread
         // may have no pool of its own to drain the RunningBoard objects.
         @autoreleasepool {
@@ -143,13 +158,15 @@ static NSString *runningBoardFocalApplication(void) {
             id handle = ((id (*)(id, SEL, id, NSError **))objc_msgSend)(handleClass, handleSelector, identifier, NULL);
             NSString *bundleID = [[handle valueForKey:@"identity"] valueForKey:@"embeddedApplicationIdentifier"];
             if (![bundleID isKindOfClass:[NSString class]] || !bundleID.length ||
-                [bundleID containsString:@"WidgetRenderer"] || strstr(path, "WidgetRenderer")) {
+                [bundleID containsString:@"WidgetRenderer"]) {
                 continue;
             }
             id state = [handle valueForKey:@"currentState"];
-            if (roleName && [state respondsToSelector:roleSelector]) {
+            if (pNSStringFromRBSRole && [state respondsToSelector:roleSelector]) {
                 uint8_t role = ((uint8_t (*)(id, SEL))objc_msgSend)(state, roleSelector);
-                if ([roleName(role) isEqualToString:@"UserInteractiveFocal"]) [focalRoleIDs addObject:bundleID];
+                if ([pNSStringFromRBSRole(role) isEqualToString:@"UserInteractiveFocal"]) {
+                    [focalRoleIDs addObject:bundleID];
+                }
             }
             for (id assertion in [state valueForKey:@"assertions"]) {
                 NSString *domain = [assertion valueForKey:@"domain"];
@@ -160,13 +177,11 @@ static NSString *runningBoardFocalApplication(void) {
                     break;
                 }
             }
-        } @catch (NSException *ex) {
-            (void)ex;
+        } @catch (NSException *) {
         }
         }
     }
     free(processes);
-    if (libproc) dlclose(libproc);
     if (focalIDs.count == 1) return focalIDs.anyObject;
     return focalIDs.count == 0 && focalRoleIDs.count == 1 ? focalRoleIDs.anyObject : nil;
 }

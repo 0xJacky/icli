@@ -28,12 +28,6 @@ func isManaged(_ bundleContainer: String) -> Bool {
     managedMarkers.contains { FileManager.default.fileExists(atPath: bundleContainer + "/" + $0) }
 }
 
-/// A path as LaunchServices reports it: symlinks resolved, without /private.
-private func physicalPath(_ path: String) -> String {
-    let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
-    return resolved.hasPrefix("/private/var/") ? String(resolved.dropFirst(8)) : resolved
-}
-
 private func appBundle(in bundleContainer: String) -> String? {
     let names = (try? FileManager.default.contentsOfDirectory(atPath: bundleContainer)) ?? []
     return names.sorted().first { $0.hasSuffix(".app") && !$0.hasPrefix("._") }.map { bundleContainer + "/" + $0 }
@@ -154,8 +148,9 @@ public func installIPAInContainer(
     if let existingContainer, previous != nil, !isManaged(existingContainer) {
         throw IcliError.failed("\(bundleID) is already installed and icli did not install it; remove it first")
     }
-    if let installed = (try? appInfo(bundleID))?["bundle_path"] as? String,
-       !physicalPath(installed).hasPrefix(physicalPath(existingContainer ?? "/nonexistent") + "/")
+    let installedInfo = try? appInfo(bundleID)
+    if let installed = installedInfo?["bundle_path"] as? String,
+       existingContainer.map({ !normalizedAppPath(installed).hasPrefix(normalizedAppPath($0) + "/") }) ?? true
     {
         throw IcliError.failed("\(bundleID) is already installed at \(installed); only an app icli installed in a container can be replaced")
     }
@@ -173,7 +168,7 @@ public func installIPAInContainer(
         bundleContainer = path
     }
     let previousType = previous.flatMap { try? appRegistration($0)["type"] as? String }
-    if previous != nil, (try? appInfo(bundleID)) != nil {
+    if previous != nil, installedInfo != nil {
         _ = try killApp(bundleID, force: true)
     }
 

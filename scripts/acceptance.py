@@ -36,10 +36,10 @@ def case(name, group, tools):
 class Device:
     def __init__(self):
         self.env = os.environ.copy()
-        password = self.env.get('ICLI_SSH_PASSWORD')
-        self.prefix = ['sshpass', '-e'] if password else []
-        if password:
-            self.env['SSHPASS'] = password
+        self.password = self.env.get('ICLI_SSH_PASSWORD', '')
+        self.prefix = ['sshpass', '-e'] if self.password else []
+        if self.password:
+            self.env['SSHPASS'] = self.password
         self.host = self.env.get('ICLI_SSH_HOST', '127.0.0.1')
         self.port = self.env.get('ICLI_SSH_PORT', '2333')
         self.user = self.env.get('ICLI_SSH_USER', 'mobile')
@@ -80,7 +80,6 @@ class Device:
 
     def run(self, command, timeout=35, sudo=False):
         command = shlex.join(command) if isinstance(command, list) else command
-        password = self.env.get('ICLI_SSH_PASSWORD', '')
         # A root login is already privileged, for a device without sudo.
         sudo = sudo and self.user != 'root'
         if sudo:
@@ -91,9 +90,10 @@ class Device:
         for attempt in range(4):
             result = subprocess.run(self.prefix + ['ssh', '-p', self.port] + self.options +
                                     [self.user + '@' + self.host, command],
-                                    env=self.env, input=(password + '\n') if sudo else None,
+                                    env=self.env, input=(self.password + '\n') if sudo else None,
                                     capture_output=True, text=True, timeout=timeout)
-            if result.returncode != 255 or 'Permission denied' not in result.stderr and 'Connection' not in result.stderr:
+            ssh_failed = result.returncode == 255 and ('Permission denied' in result.stderr or 'Connection' in result.stderr)
+            if not ssh_failed:
                 break
             time.sleep(1 + attempt)
         trace = {'command': command, 'exit': result.returncode,
@@ -1329,7 +1329,7 @@ def preferences_roundtrip(d):
 
 @case('account_password', 'system', ['account set-password'])
 def account_password(d):
-    password = d.env.get('ICLI_SSH_PASSWORD')
+    password = d.password
     assert password, 'account_password needs ICLI_SSH_PASSWORD so the runner can log in with the new value and restore the original'
     temporary = 'icli-acceptance-' + uuid.uuid4().hex[:12]
     passwd = d.sh(d.jb('/etc/master.passwd'))

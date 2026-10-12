@@ -12,7 +12,7 @@ public func launchdStatusError(_ result: [String: Any], _ action: String) -> Icl
     if status == EPERM || status == EACCES {
         return .failed("\(action) requires root (launchd status \(status))")
     }
-    if status == 144 {
+    if status == launchdServiceConfigureDenied {
         return .failed("\(action) requires launchctl service-configure privilege (launchd status \(status))")
     }
     if status != 0 {
@@ -41,18 +41,20 @@ public func validateEnvironmentKey(_ key: String) throws {
 public func listServices() throws -> [String: Any] {
     let result = try decodeBridgeJSON(takeCString(icli_launchd_services_json()), "launchd response")
     var rows: [String: [String: Any]] = [:]
+    var domains: [String: [String]] = [:]
     try forEachLaunchdDomain(in: result) { domain, record in
         let services = record["services"] as? [String: [String: Any]] ?? [:]
         for (label, service) in services {
-            var row = rows[label] ?? ["label": label, "domains": [String](), "running": false]
-            var domains = row["domains"] as? [String] ?? []
-            domains.append(domain)
-            row["domains"] = domains
+            var row = rows[label] ?? ["label": label, "running": false]
+            domains[label, default: []].append(domain)
             mergeLaunchdService(service, into: &row)
             rows[label] = row
         }
     }
-    let services = rows.values.sorted { ($0["label"] as? String ?? "") < ($1["label"] as? String ?? "") }
+    for (label, labelDomains) in domains {
+        rows[label]?["domains"] = labelDomains
+    }
+    let services = rows.sorted { $0.key < $1.key }.map(\.value)
     return ["count": services.count, "services": services]
 }
 
@@ -107,6 +109,10 @@ public func serviceStatus(_ label: String) throws -> [String: Any] {
 
 /// launchd's ENOSERVICE: nothing with that label is loaded in the domain.
 private let launchdNoService = 113
+
+/// launchd's status when the caller lacks the `launchctl` service-configure
+/// privilege; observed from launchd replies, not from a public header.
+private let launchdServiceConfigureDenied = 144
 
 /// Walks the system domain, then the user domain, of a launchd list response,
 /// skipping a domain that reports ENOSERVICE.

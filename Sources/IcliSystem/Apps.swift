@@ -50,8 +50,7 @@ private func uniqued(_ apps: [[String: Any]]) -> [[String: Any]] {
 
 private func decodeJSONArray(_ raw: String?) -> [[String: Any]] {
     guard let raw,
-          let data = raw.data(using: .utf8),
-          let obj = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+          let obj = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [[String: Any]]
     else { return [] }
     return obj
 }

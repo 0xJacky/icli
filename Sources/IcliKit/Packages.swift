@@ -326,20 +326,21 @@ public func listPackages(filter: String?) throws -> [String: Any] {
     let database = try DpkgDatabase()
     var rows: [[String: Any]] = []
     for stanza in database.stanzas where stanza.installed {
-        let row: [String: Any] = [
-            "package": stanza.package ?? "",
-            "name": stanza.fields["Name"] ?? "",
+        let package = stanza.package ?? ""
+        let name = stanza.fields["Name"] ?? ""
+        if let filter, !package.localizedCaseInsensitiveContains(filter),
+           !name.localizedCaseInsensitiveContains(filter)
+        {
+            continue
+        }
+        rows.append([
+            "package": package,
+            "name": name,
             "version": stanza.fields["Version"] ?? "",
             "architecture": stanza.fields["Architecture"] ?? "",
             "section": stanza.fields["Section"] ?? "",
             "status": stanza.fields["Status"] ?? "",
-        ]
-        if let filter, !(row["package"] as! String).localizedCaseInsensitiveContains(filter),
-           !(row["name"] as! String).localizedCaseInsensitiveContains(filter)
-        {
-            continue
-        }
-        rows.append(row)
+        ])
     }
     return ["packages": rows, "count": rows.count]
 }

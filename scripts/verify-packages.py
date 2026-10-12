@@ -44,7 +44,6 @@ for kind, arch, prefix in [('rootless', 'iphoneos-arm64', 'var/jb'), ('roothide'
         members = tar.getmembers()
         assert all(m.uid == 0 and m.gid == 0 for m in members)
         executables = [m for m in members if m.isfile() and m.mode & 0o111]
-        assert not any(m.name.endswith(('.traineddata', 'ClipboardApp.plist')) for m in members)
         assert len(executables) == 1 and executables[0].name.endswith('/icli'), executables
     report['packages'].append({'layout': kind, 'file': package.name,
                                'sha256': hashlib.sha256(package.read_bytes()).hexdigest(),

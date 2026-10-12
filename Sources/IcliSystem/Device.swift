@@ -18,8 +18,7 @@ public func deviceSnapshot() throws -> [String: Any] {
     let version = info.operatingSystemVersion
     let disk = try rootVolumeUsage()
 
-    let boot = takeCString(icli_boot_info_json())
-        .flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] } ?? [:]
+    let boot = (try? decodeBridgeJSON(takeCString(icli_boot_info_json()), "boot info")) ?? [:]
     return [
         "model": machine,
         "sysname": sysname,

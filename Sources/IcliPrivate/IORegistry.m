@@ -38,17 +38,8 @@ static void icliWalkRegistry(io_registry_entry_t entry, const char *planeName, i
 }
 
 char *icli_ioreg_json(const char *plane) {
-    icli_private_init();
     const char *planeName = (plane && plane[0]) ? plane : kIOServicePlane;
-    mach_port_t master = MACH_PORT_NULL;
-#if defined(kIOMainPortDefault)
-    master = kIOMainPortDefault;
-#elif defined(kIOMasterPortDefault)
-    master = kIOMasterPortDefault;
-#else
-    IOMainPort(MACH_PORT_NULL, &master);
-#endif
-    io_registry_entry_t root = IORegistryGetRootEntry(master);
+    io_registry_entry_t root = IORegistryGetRootEntry(kIOMainPortDefault);
     if (!root) {
         return icli_json_or_empty(@{@"entries": @[], @"error": @"no io registry"});
     }

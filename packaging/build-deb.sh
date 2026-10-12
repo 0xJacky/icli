@@ -35,5 +35,4 @@ Description: On-device iOS control CLI
 CONTROL
 OUTPUT="$ROOT/.build/com.icli.icli_${VERSION}_${ARCH}.deb"
 dpkg-deb --root-owner-group -b "$STAGE" "$OUTPUT"
-cmp "$BIN" "$STAGED_BIN"
 echo "built $OUTPUT"

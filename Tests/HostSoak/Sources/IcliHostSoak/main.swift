@@ -4,15 +4,16 @@ import Foundation
 import IcliKit
 
 // One process, many calls, worker threads: the shape of a daemon that links
-// IcliKit. Each check prints a JSON line; the process exits non-zero when any
-// check fails. A crash (an Objective-C exception from NaN in JSON, say) shows
-// up as the process dying instead of reaching the summary.
+// IcliKit. Each check records into one JSON report printed at the end; the
+// process exits non-zero when any check fails. A crash (an Objective-C
+// exception from NaN in JSON, say) shows up as the process dying instead of
+// reaching the summary.
 
 var failures: [String] = []
 var report: [String: Any] = [:]
 
-func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> Any) {
-    report[name] = ["passed": condition, "detail": detail()]
+func check(_ name: String, _ condition: Bool, _ detail: Any) {
+    report[name] = ["passed": condition, "detail": detail]
     if !condition {
         failures.append(name)
     }
@@ -122,7 +123,7 @@ for worker in 0 ..< 8 {
 
 group.wait()
 check("concurrent_reads", errors.count == 0, [
-    "errors": errors.compactMap { $0 as? String }.prefix(10).map(\.self),
+    "errors": Array(errors.compactMap { $0 as? String }.prefix(10)),
     "growth_mb": footprintMB() - concurrentFootprint,
 ])
 
@@ -132,7 +133,7 @@ let syslog = onWorker { try? captureSyslog(seconds: 2, maxLines: 50) }
 let syslogCPU = cpuSeconds() - cpuBefore
 check("syslog_worker_wait", syslog != nil && syslogCPU < 1.0, ["cpu_seconds": syslogCPU])
 
-/// 4. Plists and preferences that hold non-finite reals.
+// 4. Plists and preferences that hold non-finite reals.
 let plistPath = scratch + "/nan.plist"
 try """
 <?xml version="1.0" encoding="UTF-8"?>
@@ -143,16 +144,18 @@ try """
 let plist = try readPlist(plistPath)
 check("nan_plist", encodable(plist), plist)
 let domain = "dev.owngoal.icli.HostSoak"
-CFPreferencesSetValue("nan" as CFString, NSNumber(value: Double.nan), domain as CFString, "mobile" as CFString, kCFPreferencesAnyHost)
-CFPreferencesSetValue("list" as CFString, [NSNumber(value: Double.infinity)] as CFArray, domain as CFString, "mobile" as CFString, kCFPreferencesAnyHost)
-CFPreferencesSynchronize(domain as CFString, "mobile" as CFString, kCFPreferencesAnyHost)
+let cfDomain = domain as CFString
+let cfUser = "mobile" as CFString
+CFPreferencesSetValue("nan" as CFString, NSNumber(value: Double.nan), cfDomain, cfUser, kCFPreferencesAnyHost)
+CFPreferencesSetValue("list" as CFString, [NSNumber(value: Double.infinity)] as CFArray, cfDomain, cfUser, kCFPreferencesAnyHost)
+CFPreferencesSynchronize(cfDomain, cfUser, kCFPreferencesAnyHost)
 let preference = try readPreference(domain: domain, key: nil, user: .mobile)
 check("nan_preference", encodable(preference), preference)
 for key in ["nan", "list"] {
-    CFPreferencesSetValue(key as CFString, nil, domain as CFString, "mobile" as CFString, kCFPreferencesAnyHost)
+    CFPreferencesSetValue(key as CFString, nil, cfDomain, cfUser, kCFPreferencesAnyHost)
 }
 
-CFPreferencesSynchronize(domain as CFString, "mobile" as CFString, kCFPreferencesAnyHost)
+CFPreferencesSynchronize(cfDomain, cfUser, kCFPreferencesAnyHost)
 
 // 5. A blocking XPC request answers, or fails, within its timeout.
 let start = Date()
@@ -173,7 +176,7 @@ func switchesOn() -> [Bool] {
 // every device has, and then back to the home screen.
 _ = try? launchApp("com.apple.Preferences")
 if lockState()["locked"] as? Bool == true {
-    report["accessibility_restore"] = ["passed": true, "detail": "skipped: the device is locked"]
+    check("accessibility_restore", true, "skipped: the device is locked")
 } else {
     restoreAccessibilitySwitches()
     let initial = switchesOn()

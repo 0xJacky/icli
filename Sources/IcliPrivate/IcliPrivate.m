@@ -22,6 +22,9 @@ OBJC_EXTERN UIImage *_UICreateScreenUIImage(void) NS_RETURNS_RETAINED;
 #import <sys/sysctl.h>
 #import <IOKit/IOKitLib.h>
 
+// libSystem exports it; the SDK ships no libproc.h.
+extern int proc_pidpath(int pid, void *buffer, uint32_t buffersize);
+
 @interface NSObject (IcliLS)
 - (BOOL)openSensitiveURL:(NSURL *)url withOptions:(id)options;
 - (BOOL)openURL:(NSURL *)url withOptions:(id)options;
@@ -261,14 +264,7 @@ static int nativeToCurrentRotation(void) {
     }
     int native = displayRotation(display, @"nativeOrientation", 0);
     int current = displayRotation(display, @"currentOrientation", 0);
-    int delta = native - current;
-    while (delta < 0) {
-        delta += 360;
-    }
-    while (delta >= 360) {
-        delta -= 360;
-    }
-    return delta;
+    return ((native - current) % 360 + 360) % 360;
 }
 
 // UIKit's screen image holds the frame buffer in the fixed (portrait)
@@ -387,7 +383,6 @@ static IcliInterfaceGeometry interfaceGeometry(void) {
 }
 
 IcliScreenMetrics icli_screen_metrics(void) {
-    icli_private_init();
     IcliInterfaceGeometry geometry = interfaceGeometry();
     if (!geometry.valid) {
         return panelMetrics();
@@ -403,10 +398,9 @@ IcliScreenMetrics icli_screen_metrics(void) {
 }
 
 void icli_screen_point_to_fixed(double x, double y, double *fx, double *fy) {
-    icli_private_init();
     IcliInterfaceGeometry geometry = interfaceGeometry();
     double width = geometry.fixed_width, height = geometry.fixed_height;
-    switch (geometry.valid ? geometry.degrees : 0) {
+    switch (geometry.degrees) {
     case 90:
         *fx = y;
         *fy = height - x;
@@ -427,10 +421,9 @@ void icli_screen_point_to_fixed(double x, double y, double *fx, double *fy) {
 }
 
 void icli_screen_fixed_to_point(double fx, double fy, double *x, double *y) {
-    icli_private_init();
     IcliInterfaceGeometry geometry = interfaceGeometry();
     double width = geometry.fixed_width, height = geometry.fixed_height;
-    switch (geometry.valid ? geometry.degrees : 0) {
+    switch (geometry.degrees) {
     case 90:
         *x = height - fy;
         *y = fx;
@@ -520,12 +513,10 @@ static bool setCompositorOrientation(int degrees) {
 }
 
 int icli_interface_degrees(void) {
-    icli_private_init();
     return springBoardInterfaceDegrees();
 }
 
 IcliRotation icli_rotation_get(void) {
-    icli_private_init();
     IcliScreenMetrics metrics = icli_screen_metrics();
     IcliRotation rotation = {0, 0, false};
     rotation.degrees = metrics.orientation;
@@ -541,20 +532,12 @@ IcliRotation icli_rotation_get(void) {
     }
     id server = axSpringBoardServer();
     if ([server respondsToSelector:@selector(isOrientationLocked)]) {
-        NSMethodSignature *sig = [server methodSignatureForSelector:@selector(isOrientationLocked)];
-        NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-        [inv setSelector:@selector(isOrientationLocked)];
-        [inv setTarget:server];
-        [inv invoke];
-        BOOL locked = NO;
-        [inv getReturnValue:&locked];
-        rotation.locked = rotation.locked || locked;
+        rotation.locked = rotation.locked || ((BOOL (*)(id, SEL))objc_msgSend)(server, @selector(isOrientationLocked));
     }
     return rotation;
 }
 
 bool icli_rotation_set(int degrees) {
-    icli_private_init();
     int normalized = degrees % 360;
     if (normalized < 0) {
         normalized += 360;
@@ -566,20 +549,11 @@ bool icli_rotation_set(int degrees) {
 }
 
 bool icli_rotation_lock_set(bool locked) {
-    icli_private_init();
     bool ok = false;
     id server = axSpringBoardServer();
     if ([server respondsToSelector:@selector(setOrientationLocked:)]) {
-        NSMethodSignature *sig = [server methodSignatureForSelector:@selector(setOrientationLocked:)];
-        if (sig) {
-            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-            [inv setSelector:@selector(setOrientationLocked:)];
-            [inv setTarget:server];
-            BOOL value = locked;
-            [inv setArgument:&value atIndex:2];
-            [inv invoke];
-            ok = true;
-        }
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(server, @selector(setOrientationLocked:), locked);
+        ok = true;
     }
     void *bks = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW);
     void (*lockFn)(void) = bks ? dlsym(bks, "BKSHIDServicesLockOrientation") : NULL;
@@ -628,7 +602,8 @@ static UIImage *screenshotViaRenderServer(void) {
     CFStringRef *pBPE = dlsym(iosurface, "kIOSurfaceBytesPerElement");
     CFStringRef *pBPR = dlsym(iosurface, "kIOSurfaceBytesPerRow");
     CFStringRef *pFmt = dlsym(iosurface, "kIOSurfacePixelFormat");
-    if (!pCreate || !pRender || !pBase || !pWidth) {
+    if (!pCreate || !pBase || !pBytesPerRow || !pLock || !pUnlock || !pRender || !pWidth || !pHeight || !pBPE || !pBPR
+        || !pFmt) {
         return nil;
     }
     IcliScreenMetrics m = panelMetrics();
@@ -648,21 +623,16 @@ static UIImage *screenshotViaRenderServer(void) {
     if (!surface) {
         return nil;
     }
-    if (pLock) {
-        pLock(surface, 0, NULL);
-    }
+    pLock(surface, 0, NULL);
     pRender(0, CFSTR("LCD"), surface, 0, 0);
-    if (pUnlock) {
-        pUnlock(surface, 0, NULL);
-    }
     void *base = pBase(surface);
-    size_t bpr = pBytesPerRow ? pBytesPerRow(surface) : (size_t)width * 4;
-    if (!base) {
-        CFRelease(surface);
+    size_t bpr = pBytesPerRow(surface);
+    NSData *pixels = base ? [NSData dataWithBytes:base length:bpr * (size_t)height] : nil;
+    pUnlock(surface, 0, NULL);
+    CFRelease(surface);
+    if (!pixels) {
         return nil;
     }
-    NSData *pixels = [NSData dataWithBytes:base length:bpr * (size_t)height];
-    CFRelease(surface);
     CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
     CGDataProviderRef provider = CGDataProviderCreateWithCFData((__bridge CFDataRef)pixels);
     CGImageRef cg = CGImageCreate(width, height, 8, 32, bpr, space,
@@ -730,7 +700,7 @@ static UIImage *orientedScreenImage(void) {
     // icli_screen_point_to_fixed, which the digitizer confirms.
     IcliInterfaceGeometry geometry = interfaceGeometry();
     UIImageOrientation upright = UIImageOrientationUp;
-    switch (geometry.valid ? geometry.degrees : 0) {
+    switch (geometry.degrees) {
     case 90:
         upright = UIImageOrientationRight;
         break;
@@ -752,7 +722,6 @@ static UIImage *orientedScreenImage(void) {
 }
 
 bool icli_screenshot_jpeg(const char *path, float quality, int max_bytes, bool native_resolution) {
-    icli_private_init();
     if (!path) {
         return false;
     }
@@ -770,10 +739,6 @@ bool icli_screenshot_jpeg(const char *path, float quality, int max_bytes, bool n
     }
     float q = quality > 0 ? quality : 0.7f;
     NSData *data = UIImageJPEGRepresentation(image, q);
-    while (data.length == 0 && q > 0.2f) {
-        q -= 0.1f;
-        data = UIImageJPEGRepresentation(image, q);
-    }
     if (max_bytes > 0) {
         while (data.length > (NSUInteger)max_bytes && q > 0.15f) {
             q -= 0.1f;
@@ -818,10 +783,10 @@ void icli_screen_point_to_digitizer(double x, double y, double *nx, double *ny) 
 
 // nx and ny are 0…1 in the fixed digitizer space.
 static IOHIDEventRef createDigitizerEvent(double nx, double ny, IcliTouchPhase phase) {
-    uint64_t timestamp = mach_absolute_time();
     if (!pIOHIDEventCreateDigitizerEvent) {
         return NULL;
     }
+    uint64_t timestamp = mach_absolute_time();
     uint32_t mask;
     Boolean range;
     Boolean isTouch;
@@ -841,8 +806,6 @@ static IOHIDEventRef createDigitizerEvent(double nx, double ny, IcliTouchPhase p
         range = NO;
         isTouch = NO;
         break;
-    default:
-        return NULL;
     }
     IOHIDEventRef parent = pIOHIDEventCreateDigitizerEvent(
         kCFAllocatorDefault, timestamp, kIOHIDDigitizerTransducerTypeHand,
@@ -1026,17 +989,9 @@ char *icli_runningboard_apps_json(void) {
             return icli_json_or_empty(@{@"error": @"RunningBoard process handles unavailable"});
         }
 
-        void *libproc = dlopen("/usr/lib/libproc.dylib", RTLD_NOW);
-        int (*pidPath)(int, void *, uint32_t) = libproc ? dlsym(libproc, "proc_pidpath") : NULL;
-        if (!pidPath) {
-            if (libproc) dlclose(libproc);
-            return icli_json_or_empty(@{@"error": @"proc_pidpath unavailable"});
-        }
-
         int mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL};
         size_t length = 0;
         if (sysctl(mib, 3, NULL, &length, NULL, 0) != 0) {
-            dlclose(libproc);
             return icli_json_or_empty(@{@"error": @(strerror(errno))});
         }
         length += 64 * sizeof(struct kinfo_proc);
@@ -1044,7 +999,6 @@ char *icli_runningboard_apps_json(void) {
         if (!processes || sysctl(mib, 3, processes, &length, NULL, 0) != 0) {
             int error = errno;
             free(processes);
-            dlclose(libproc);
             return icli_json_or_empty(@{@"error": processes ? @(strerror(error)) : @"process allocation failed"});
         }
 
@@ -1052,7 +1006,7 @@ char *icli_runningboard_apps_json(void) {
         for (size_t i = 0; i < length / sizeof(struct kinfo_proc); i++) {
             pid_t pid = processes[i].kp_proc.p_pid;
             char path[4096] = {0};
-            if (pid <= 0 || pidPath(pid, path, sizeof(path)) <= 0) continue;
+            if (pid <= 0 || proc_pidpath(pid, path, sizeof(path)) <= 0) continue;
             // Exclude helpers and extensions nested inside an application bundle.
             char *app = strstr(path, ".app/");
             if (!app || strchr(app + 5, '/')) continue;
@@ -1071,13 +1025,11 @@ char *icli_runningboard_apps_json(void) {
             }
         }
         free(processes);
-        dlclose(libproc);
         return icli_json_or_empty(@{@"apps": apps});
     }
 }
 
 char *icli_app_handlers_json(const char *url_or_scheme) {
-    icli_private_init();
     if (!url_or_scheme) {
         return icli_json_or_empty(@{@"error": @"missing url"});
     }
@@ -1108,7 +1060,6 @@ char *icli_app_handlers_json(const char *url_or_scheme) {
 }
 
 bool icli_open_url_in_app(const char *url, const char *bundle_id) {
-    icli_private_init();
     if (!url) {
         return false;
     }
@@ -1121,19 +1072,8 @@ bool icli_open_url_in_app(const char *url, const char *bundle_id) {
         return false;
     }
     id ws = icli_ls_workspace();
-    SEL opSel = @selector(operationToOpenResource:usingApplication:userInfo:);
-    if ([ws respondsToSelector:opSel]) {
-        NSMethodSignature *sig = [ws methodSignatureForSelector:opSel];
-        NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-        [inv setSelector:opSel];
-        [inv setTarget:ws];
-        id userInfo = nil;
-        [inv setArgument:&u atIndex:2];
-        [inv setArgument:&bid atIndex:3];
-        [inv setArgument:&userInfo atIndex:4];
-        [inv invoke];
-        __unsafe_unretained id op = nil;
-        [inv getReturnValue:&op];
+    if ([ws respondsToSelector:@selector(operationToOpenResource:usingApplication:userInfo:)]) {
+        id op = [ws operationToOpenResource:u usingApplication:bid userInfo:nil];
         if ([op respondsToSelector:@selector(start)]) {
             [op performSelector:@selector(start)];
             return true;

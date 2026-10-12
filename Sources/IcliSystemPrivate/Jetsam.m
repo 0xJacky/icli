@@ -30,7 +30,8 @@ typedef struct {
 static NSArray *priorityList(NSString **error) {
     IcliMemorystatusPriorityEntry *entries = NULL;
     int written = 0;
-    for (int attempt = 0; attempt < 3; attempt++) {
+    const int attempts = 3;
+    for (int attempt = 0; attempt < attempts; attempt++) {
         errno = 0;
         int size = memorystatus_control(MEMORYSTATUS_CMD_GET_PRIORITY_LIST, 0, 0, NULL, 0);
         if (size <= 0) {
@@ -49,7 +50,7 @@ static NSArray *priorityList(NSString **error) {
         int failure = errno ?: EINVAL;
         free(entries);
         entries = NULL;
-        if (failure != EINVAL || attempt == 2) {
+        if (failure != EINVAL || attempt == attempts - 1) {
             *error = @(strerror(failure));
             return nil;
         }

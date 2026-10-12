@@ -6,21 +6,18 @@
 #import <objc/message.h>
 
 double icli_battery_fraction(void) {
-    icli_private_init();
     UIDevice *device = [UIDevice currentDevice];
     device.batteryMonitoringEnabled = YES;
     return device.batteryLevel;
 }
 
 int icli_battery_state(void) {
-    icli_private_init();
     UIDevice *device = [UIDevice currentDevice];
     device.batteryMonitoringEnabled = YES;
     return (int)device.batteryState;
 }
 
 double icli_brightness_get(void) {
-    icli_private_init();
     void *handle = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW);
     float (*get)(void) = handle ? dlsym(handle, "BKSDisplayBrightnessGetCurrent") : NULL;
     if (get) return get();
@@ -71,7 +68,6 @@ static bool setUserBrightness(double value) {
 // com.apple.backboard.displaybrightness; the request is sent asynchronously,
 // so wait before the caller reads the value back.
 bool icli_brightness_set(double value) {
-    icli_private_init();
     double v = value;
     if (v < 0) v = 0;
     if (v > 1) v = 1;
@@ -113,29 +109,21 @@ static NSString *volumeCategory(const char *category) {
 }
 
 double icli_volume_get(const char *category) {
-    icli_private_init();
     id ctl = avSystemController();
-    if (!ctl) {
+    if (![ctl respondsToSelector:@selector(getVolume:forCategory:)]) {
         return -1;
     }
     float vol = 0;
-    NSString *cat = volumeCategory(category);
-    NSMethodSignature *sig = [ctl methodSignatureForSelector:@selector(getVolume:forCategory:)];
-    if (!sig) {
-        return -1;
-    }
-    NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-    [inv setSelector:@selector(getVolume:forCategory:)];
-    [inv setTarget:ctl];
-    float *outp = &vol;
-    [inv setArgument:&outp atIndex:2];
-    [inv setArgument:&cat atIndex:3];
-    [inv invoke];
+    ((BOOL (*)(id, SEL, float *, NSString *))objc_msgSend)(
+        ctl,
+        @selector(getVolume:forCategory:),
+        &vol,
+        volumeCategory(category)
+    );
     return vol;
 }
 
 bool icli_volume_set(double value, const char *category) {
-    icli_private_init();
     id ctl = avSystemController();
     if (!ctl) {
         return false;
@@ -148,20 +136,15 @@ bool icli_volume_set(double value, const char *category) {
     if (![ctl respondsToSelector:sel]) {
         sel = @selector(setVolumeTo:forCategory:);
     }
+    // The setter's return type is not established; the runtime signature says
+    // whether there is a BOOL to read.
     NSMethodSignature *sig = [ctl methodSignatureForSelector:sel];
     if (!sig) {
         return false;
     }
-    NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-    [inv setSelector:sel];
-    [inv setTarget:ctl];
-    [inv setArgument:&v atIndex:2];
-    [inv setArgument:&cat atIndex:3];
-    [inv invoke];
     if (sig.methodReturnLength >= sizeof(BOOL)) {
-        BOOL ok = NO;
-        [inv getReturnValue:&ok];
-        return ok;
+        return ((BOOL (*)(id, SEL, float, NSString *))objc_msgSend)(ctl, sel, v, cat);
     }
+    ((void (*)(id, SEL, float, NSString *))objc_msgSend)(ctl, sel, v, cat);
     return true;
 }
