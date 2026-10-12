@@ -616,12 +616,14 @@ static UIImage *screenshotViaRenderServer(void) {
     if (!surface) {
         return nil;
     }
-    pLock(surface, 0, NULL);
+    // The render server cannot draw into a surface this process holds
+    // locked, so render first and lock only to read.
     pRender(0, CFSTR("LCD"), surface, 0, 0);
+    pLock(surface, 1 /* kIOSurfaceLockReadOnly */, NULL);
     void *base = pBase(surface);
     size_t bpr = pBytesPerRow(surface);
     NSData *pixels = base ? [NSData dataWithBytes:base length:bpr * (size_t)height] : nil;
-    pUnlock(surface, 0, NULL);
+    pUnlock(surface, 1 /* kIOSurfaceLockReadOnly */, NULL);
     CFRelease(surface);
     if (!pixels) {
         return nil;

@@ -26,7 +26,7 @@ public func frontmostApp() -> [String: Any] {
 /// the front is `IcliError.failed`.
 public func launchApp(_ bundleID: String) throws -> [String: Any] {
     let apps = try listApps()["apps"] as? [[String: Any]] ?? []
-    guard apps.contains(where: { $0["bundle_id"] as? String == bundleID }) else {
+    guard !bundleID.isEmpty, apps.contains(where: { $0["bundle_id"] as? String == bundleID }) else {
         throw IcliError.failed("app not found: \(bundleID)")
     }
     switch icli_launch_app(bundleID) {
