@@ -16,6 +16,8 @@ void icli_string_free(char *s);
 char *icli_bootstrap_json(void);
 char *icli_jbroot_path(const char *path);
 char *icli_rootfs_path(const char *path);
+bool icli_roothide_root_name(const char *name);
+char *icli_roothide_root_in(const char *parent);
 char *icli_processes_json(void);
 char *icli_boot_info_json(void);
 char *icli_file_md5(const char *path);

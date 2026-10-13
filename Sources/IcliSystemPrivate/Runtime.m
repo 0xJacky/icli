@@ -93,6 +93,18 @@ static void resolveBootstrapLocked(void) {
             dlclose(hook);
         }
     }
+    // A host on the system volume has no libroot or .jbroot link beside it,
+    // and a RootHide root that no jailbreak loaded has no hook to ask. Find
+    // such a root where RootHide puts it, as /var/jb is found below.
+    if (!bootstrapPrefix && access("/var/jb", F_OK) != 0) {
+        char *root = icli_roothide_root_in("/private/var/containers/Bundle/Application");
+        if (root) {
+            bootstrapPrefix = @(root);
+            rootfsPrefix = @"/rootfs";
+            bootstrapSource = @"filesystem .jbroot";
+            free(root);
+        }
+    }
     if (!bootstrapPrefix) {
         bootstrapPrefix = access("/var/jb", F_OK) == 0 ? @"/var/jb" : @"/";
         rootfsPrefix = @"/";
