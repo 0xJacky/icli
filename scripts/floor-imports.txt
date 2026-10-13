@@ -113,7 +113,10 @@ swift_getEnumCaseMultiPayload
 swift_getErrorValue
 swift_getExistentialTypeMetadata
 swift_getForeignTypeMetadata
+swift_getFunctionTypeMetadata1
+swift_getFunctionTypeMetadata3
 swift_getGenericMetadata
+swift_getInitializedObjCClass
 swift_getKeyPath
 swift_getMetatypeMetadata
 swift_getObjCClassFromMetadata
@@ -137,6 +140,7 @@ swift_once
 swift_release
 swift_release_n
 swift_retain
+swift_retain_n
 swift_setDeallocating
 swift_slowAlloc
 swift_slowDealloc
