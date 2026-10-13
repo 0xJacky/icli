@@ -127,7 +127,7 @@ private struct DpkgDatabase {
     /// With `locking`, dpkg's lock is taken before status is read, so the
     /// snapshot a transaction edits is the one it later saves over.
     init(locking: Bool = false) throws {
-        directory = JailbreakRoot.current.jbrootPath("/var/lib/dpkg")
+        directory = Self.adminDirectory()
         if locking {
             try acquireLock()
         }
@@ -140,6 +140,18 @@ private struct DpkgDatabase {
             .map { $0.trimmingCharacters(in: .newlines) }
             .filter { !$0.isEmpty }
             .map(Stanza.init(raw:))
+    }
+
+    /// Procursus builds dpkg with Library/dpkg as its admin directory, and
+    /// the dpkg package ships var/lib/dpkg as a link to it. A bootstrap that
+    /// has not installed that package yet, or whose link does not resolve
+    /// outside the bootstrap's view of the file system, has only the former.
+    private static func adminDirectory() -> String {
+        let root = JailbreakRoot.current
+        let linked = root.jbrootPath("/var/lib/dpkg")
+        let admin = root.jbrootPath("/Library/dpkg")
+        let files = FileManager.default
+        return !files.fileExists(atPath: linked) && files.fileExists(atPath: admin) ? admin : linked
     }
 
     func stanza(_ name: String) -> Stanza? {
