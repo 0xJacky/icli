@@ -678,7 +678,9 @@ static UIImage *rotateCGImage(CGImageRef src, int degrees) {
         CGContextTranslateCTM(ctx, destWidth, destHeight);
         CGContextRotateCTM(ctx, M_PI);
     }
-    CGContextTranslateCTM(ctx, 0, (degrees == 180) ? height : width);
+    // CGContextDrawImage draws upside down in UIKit's flipped context; the
+    // image is turned back over its own height, whatever the rotation.
+    CGContextTranslateCTM(ctx, 0, height);
     CGContextScaleCTM(ctx, 1, -1);
     CGContextDrawImage(ctx, CGRectMake(0, 0, width, height), src);
     UIImage *out = UIGraphicsGetImageFromCurrentImageContext();
