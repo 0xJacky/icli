@@ -259,21 +259,33 @@ static NSString *const StatePath = @"/var/mobile/Library/Caches/icli-testhost/st
 }
 @end
 
+// UIKit in iOS 27 stops an app built with that SDK at launch unless it uses
+// the scene life cycle (UIKit/assert_for_no_scene_lifecycle), so the window
+// and the URLs come through a scene delegate.
 @interface TestDelegate : UIResponder <UIApplicationDelegate>
-@property(nonatomic) UIWindow *window;
 @property(nonatomic) TestController *controller;
 @end
 @implementation TestDelegate
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)options {
-    self.window=[[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
     self.controller=[TestController new];
-    self.window.rootViewController=self.controller;
-    [self.window makeKeyAndVisible];
     return YES;
 }
-- (BOOL)application:(UIApplication *)application openURL:(NSURL *)url options:(NSDictionary *)options {
-    [self.controller handleURL:url];
-    return YES;
+@end
+
+@interface TestSceneDelegate : UIResponder <UIWindowSceneDelegate>
+@property(nonatomic) UIWindow *window;
+@end
+@implementation TestSceneDelegate
+- (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)options {
+    TestController *controller=((TestDelegate *)UIApplication.sharedApplication.delegate).controller;
+    self.window=[[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
+    self.window.rootViewController=controller;
+    [self.window makeKeyAndVisible];
+    for(UIOpenURLContext *context in options.URLContexts) [controller handleURL:context.URL];
+}
+- (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)contexts {
+    TestController *controller=((TestDelegate *)UIApplication.sharedApplication.delegate).controller;
+    for(UIOpenURLContext *context in contexts) [controller handleURL:context.URL];
 }
 @end
 int main(int argc,char **argv) {
