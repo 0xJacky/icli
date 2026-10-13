@@ -271,6 +271,8 @@ typedef struct {
     double fixed_height;
     double scale;
     int degrees;
+    // SpringBoard answered for its interface orientation, so it is running.
+    bool springboard;
 } IcliInterfaceGeometry;
 
 static int degreesForImageOrientation(UIImageOrientation orientation) {
@@ -364,6 +366,7 @@ static IcliInterfaceGeometry interfaceGeometry(void) {
                 geometry.scale = scale;
                 int degrees = springBoardInterfaceDegrees();
                 geometry.degrees = degrees >= 0 ? degrees : degreesForImageOrientation(image.imageOrientation);
+                geometry.springboard = degrees >= 0;
             }
         }
         cachedGeometry = geometry;
@@ -675,7 +678,9 @@ static UIImage *rotateCGImage(CGImageRef src, int degrees) {
         CGContextTranslateCTM(ctx, destWidth, destHeight);
         CGContextRotateCTM(ctx, M_PI);
     }
-    CGContextTranslateCTM(ctx, 0, (degrees == 180) ? height : width);
+    // CGContextDrawImage draws upside down in UIKit's flipped context; the
+    // image is turned back over its own height, whatever the rotation.
+    CGContextTranslateCTM(ctx, 0, height);
     CGContextScaleCTM(ctx, 1, -1);
     CGContextDrawImage(ctx, CGRectMake(0, 0, width, height), src);
     UIImage *out = UIGraphicsGetImageFromCurrentImageContext();
@@ -684,7 +689,13 @@ static UIImage *rotateCGImage(CGImageRef src, int degrees) {
 }
 
 static UIImage *orientedScreenImage(void) {
-    UIImage *raw = screenCaptureReady() ? _UICreateScreenUIImage() : nil;
+    // While SpringBoard is not running, at boot and during a respring, the
+    // display shows the boot logo or the respring spinner instead of
+    // SpringBoard's scene. UIKit's capture of that comes out magnified by the
+    // screen scale: on a 2x screen the image held the top-left quarter of the
+    // boot logo. The render server draws what the display shows.
+    IcliInterfaceGeometry geometry = interfaceGeometry();
+    UIImage *raw = geometry.springboard && screenCaptureReady() ? _UICreateScreenUIImage() : nil;
     if (!raw) {
         // The render server draws in the panel's orientation, not the UI's.
         raw = screenshotViaRenderServer();
@@ -703,7 +714,6 @@ static UIImage *orientedScreenImage(void) {
     // the top of the interface lies along the buffer's right edge, so it turns
     // counter-clockwise to become upright. This matches
     // icli_screen_point_to_fixed, which the digitizer confirms.
-    IcliInterfaceGeometry geometry = interfaceGeometry();
     UIImageOrientation upright = UIImageOrientationUp;
     switch (geometry.degrees) {
     case 90:
