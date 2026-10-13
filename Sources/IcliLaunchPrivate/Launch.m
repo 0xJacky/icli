@@ -118,8 +118,35 @@ static void icli_running_board_init(void) {
     });
 }
 
+// Whether the app whose executable is at `path` is tagged hidden: a view
+// service SpringBoard hosts in its own interface, such as the Dock's folder
+// stacks on iPad or a widget, rather than an app a user opens. Such a service
+// holds the same FrontBoard focal assertion as the app on screen while it is
+// shown, on the Home Screen too.
+static BOOL hiddenApplication(const char *path) {
+    static NSMutableDictionary<NSString *, NSNumber *> *cache;
+    const char *app = path ? strstr(path, ".app/") : NULL;
+    if (!app) return NO;
+    NSString *bundle = [[NSString alloc] initWithBytes:path length:(NSUInteger)(app + 4 - path) encoding:NSUTF8StringEncoding];
+    if (!bundle) return NO;
+    @synchronized([NSProcessInfo class]) {
+        if (!cache) cache = [NSMutableDictionary dictionary];
+        NSNumber *hidden = cache[bundle];
+        if (!hidden) {
+            NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:[bundle stringByAppendingPathComponent:@"Info.plist"]];
+            id tags = info[@"SBAppTags"];
+            hidden = @([tags isKindOfClass:[NSArray class]] && [tags containsObject:@"hidden"]);
+            cache[bundle] = hidden;
+        }
+        return hidden.boolValue;
+    }
+}
+
 // The FrontBoard focal assertion identifies the app receiving input. The
 // older SpringBoard query may be stale even while another app is on screen.
+// Hidden view services hold that assertion too and are left out. When several
+// apps hold it, as with windows side by side on iPad in iOS 27, the one
+// FrontBoard also gives the ForegroundFocal jetsam priority has the focus.
 // Setup Assistant drops its launch assertion and never takes a workspace focal
 // one, yet RunningBoard keeps its role at UserInteractiveFocal, so the role
 // decides when no assertion does.
@@ -140,8 +167,10 @@ static NSString *runningBoardFocalApplication(void) {
         return nil;
     }
     NSMutableSet<NSString *> *focalIDs = [NSMutableSet set];
+    NSMutableSet<NSString *> *foregroundFocalIDs = [NSMutableSet set];
+    NSMutableSet<NSString *> *hiddenFocalIDs = [NSMutableSet set];
     NSMutableSet<NSString *> *focalRoleIDs = [NSMutableSet set];
-    for (size_t i = 0; i < length / sizeof(struct kinfo_proc) && focalIDs.count < 2; i++) {
+    for (size_t i = 0; i < length / sizeof(struct kinfo_proc); i++) {
         pid_t pid = processes[i].kp_proc.p_pid;
         char path[4096] = {0};
         if (pid <= 0) continue;
@@ -175,14 +204,21 @@ static NSString *runningBoardFocalApplication(void) {
                     [focalRoleIDs addObject:bundleID];
                 }
             }
+            BOOL focal = NO, foregroundFocal = NO;
             for (id assertion in [state valueForKey:@"assertions"]) {
                 NSString *domain = [assertion valueForKey:@"domain"];
                 if ([domain isKindOfClass:[NSString class]] &&
                     ([domain containsString:@"Workspace-ForegroundFocal"] ||
                      [domain containsString:@"com.apple.frontboard:SuspendableRole-UIFocal"])) {
-                    [focalIDs addObject:bundleID];
-                    break;
+                    focal = YES;
+                    foregroundFocal = foregroundFocal || [domain containsString:@"JetsamPriority-ForegroundFocal"];
                 }
+            }
+            if (focal && !pathless && hiddenApplication(path)) {
+                [hiddenFocalIDs addObject:bundleID];
+            } else if (focal) {
+                [focalIDs addObject:bundleID];
+                if (foregroundFocal) [foregroundFocalIDs addObject:bundleID];
             }
         } @catch (NSException *) {
         }
@@ -190,7 +226,9 @@ static NSString *runningBoardFocalApplication(void) {
     }
     free(processes);
     if (focalIDs.count == 1) return focalIDs.anyObject;
-    return focalIDs.count == 0 && focalRoleIDs.count == 1 ? focalRoleIDs.anyObject : nil;
+    if (focalIDs.count > 1) return foregroundFocalIDs.count == 1 ? foregroundFocalIDs.anyObject : nil;
+    [focalRoleIDs minusSet:hiddenFocalIDs];
+    return focalRoleIDs.count == 1 ? focalRoleIDs.anyObject : nil;
 }
 
 char *icli_frontmost_app_json(void) {
