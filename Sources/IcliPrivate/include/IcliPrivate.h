@@ -97,16 +97,17 @@ int icli_compare_debian_versions(const char *left, const char *right, int *compa
 
 char *icli_apps_unregister_directory_json(const char *directory);
 char *icli_app_registration_json(const char *path);
-/// Every app LaunchServices lists, as an XML property list array: the bundle
-/// identifier, normalized path, and what a uicache registration sets
-/// (versions, type, signer, containerization, data container, environment,
-/// group identifiers, entitlements, settings bundle), with each app's plug-ins
-/// under "plugins". NULL when LaunchServices cannot be asked.
-char *icli_app_records_plist(void);
-/// The record of the app registered under one bundle identifier, in the form
-/// of icli_app_records_plist's entries: an empty dictionary when none is,
-/// NULL when LaunchServices cannot be asked.
-char *icli_app_record_plist(const char *bundle_id);
+/// Every app LaunchServices lists, as an XML property list array of
+/// {bundle_id, path, type, signer} with the path normalized. NULL when
+/// LaunchServices cannot be asked.
+char *icli_app_index_plist(void);
+/// The record of the app registered as `bundle_id` at `path`, as an XML
+/// property list: the bundle identifier, normalized path, and what a uicache
+/// registration sets (versions, type, signer, containerization, data
+/// container, environment, group identifiers, entitlements, settings bundle),
+/// with its plug-ins under "plugins". An empty dictionary when no such app is
+/// registered, NULL when LaunchServices cannot be asked.
+char *icli_app_record_plist(const char *bundle_id, const char *path);
 /// A bundle path in the form LaunchServices reports it: symlinks in every
 /// existing component resolved, /private/var as /var.
 char *icli_normalized_app_path(const char *path);

@@ -242,14 +242,17 @@ private func bundleDictionary(
 
 // MARK: - Records
 
-/// LaunchServices' records (see icli_app_records_plist), by normalized
-/// bundle path and by bundle identifier.
+/// Every app LaunchServices lists, by normalized bundle path and by bundle
+/// identifier: its identifier, path, type and signer (see
+/// icli_app_index_plist). What a registration sets is read for one app at a
+/// time with registeredRecord, since reading it for every app took most of
+/// a refresh.
 struct RegisteredApps {
     let byPath: [String: [String: Any]]
     let byID: [String: [String: Any]]
 
     init() throws {
-        guard let xml = takeCString(icli_app_records_plist()),
+        guard let xml = takeCString(icli_app_index_plist()),
               let records = try PropertyListSerialization.propertyList(from: Data(xml.utf8), format: nil)
               as? [[String: Any]]
         else {
@@ -335,21 +338,16 @@ private func bundleDifference(
     return nil
 }
 
-/// LaunchServices' record of the app at `path` registered as `bundleID`.
-/// Reads that one record; the full list only when the identifier's record is
-/// elsewhere, as while a moved app has a record at each path.
+/// LaunchServices' record of the app at `path` registered as `bundleID`, or
+/// nil when it lists none there.
 func registeredRecord(_ bundleID: String, at path: String) throws -> [String: Any]? {
-    let path = normalizedAppPath(path)
-    guard let xml = takeCString(icli_app_record_plist(bundleID)),
+    guard let xml = takeCString(icli_app_record_plist(bundleID, path)),
           let record = try PropertyListSerialization.propertyList(from: Data(xml.utf8), format: nil)
           as? [String: Any]
     else {
         throw IcliError.failed("LaunchServices application record unavailable")
     }
-    if record["path"] as? String == path {
-        return record
-    }
-    return try RegisteredApps().byPath[path]
+    return record.isEmpty ? nil : record
 }
 
 /// Registers `plan` and reads LaunchServices' record of the app back, for up
@@ -497,7 +495,10 @@ public func refreshApps(directory: String?) throws -> [String: Any] {
             continue
         }
         plans[path] = plan
-        if let record = before.byPath[normalizedAppPath(path)], registrationDifference(record, plan) == nil {
+        if before.byPath[normalizedAppPath(path)] != nil,
+           let record = try registeredRecord(plan.app.bundleID, at: path),
+           registrationDifference(record, plan) == nil
+        {
             unchanged.append(path)
             continue
         }
@@ -530,7 +531,8 @@ public func refreshApps(directory: String?) throws -> [String: Any] {
     var problems = failed.map { "\($0) could not be registered or unregistered" }
     var unverified: [String] = []
     for (path, plan) in plans.sorted(by: { $0.key < $1.key }) {
-        guard let record = after.byPath[normalizedAppPath(path)] else {
+        guard after.byPath[normalizedAppPath(path)] != nil, let record = try registeredRecord(plan.app.bundleID, at: path)
+        else {
             unverified.append(path)
             problems.append("LaunchServices does not list \(path)")
             continue
