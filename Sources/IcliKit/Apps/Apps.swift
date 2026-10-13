@@ -48,6 +48,23 @@ private func processMatchesApp(_ process: [String: Any], _ app: [String: Any]) -
         == URL(fileURLWithPath: processPath).resolvingSymlinksInPath().path
 }
 
+/// The processes of an app: those running its bundle's executable, and those
+/// RunningBoard attributes to its bundle ID. The second finds an app that
+/// kept running after its bundle was replaced, whose executable path is gone.
+private func appPIDs(_ app: [String: Any], in processes: [[String: Any]]) -> [Int] {
+    var pids = processes.filter { processMatchesApp($0, app) }.compactMap { $0["pid"] as? Int }
+    if let bundleID = app["bundle_id"] as? String,
+       let result = try? decodeBridgeJSON(takeCString(icli_runningboard_apps_json()), "RunningBoard applications"),
+       let rows = result["apps"] as? [[String: Any]]
+    {
+        let live = Set(processes.compactMap { $0["pid"] as? Int })
+        for row in rows where row["bundle_id"] as? String == bundleID {
+            if let pid = row["pid"] as? Int, live.contains(pid), !pids.contains(pid) { pids.append(pid) }
+        }
+    }
+    return pids
+}
+
 func frontmostPID() throws -> Int32 {
     let frontmost = frontmostApp()
     guard frontmost["verified"] as? Bool == true,
@@ -63,7 +80,7 @@ func frontmostPID() throws -> Int32 {
         return Int32(pid)
     }
     let app = try appInfo(bundleID)
-    guard let process = processes.first(where: { processMatchesApp($0, app) }), let pid = process["pid"] as? Int else {
+    guard let pid = appPIDs(app, in: processes).first else {
         throw IcliError.failed("frontmost app process not found: \(bundleID)")
     }
     return Int32(pid)
@@ -96,7 +113,7 @@ public func killApp(_ bundleID: String, force: Bool) throws -> [String: Any] {
     }
     let app = try appInfo(bundleID)
     let processes = try listProcesses(filter: nil)["processes"] as? [[String: Any]] ?? []
-    let pids = processes.filter { processMatchesApp($0, app) }.compactMap { $0["pid"] as? Int }
+    let pids = appPIDs(app, in: processes)
     for pid in pids {
         if Darwin.kill(Int32(pid), SIGTERM) != 0, errno != ESRCH {
             throw IcliError.failed("could not stop app: \(String(cString: strerror(errno)))")
@@ -105,7 +122,7 @@ public func killApp(_ bundleID: String, force: Bool) throws -> [String: Any] {
     let deadline = ProcessInfo.processInfo.systemUptime + 5
     repeat {
         let remaining = try listProcesses(filter: nil)["processes"] as? [[String: Any]] ?? []
-        if !remaining.contains(where: { processMatchesApp($0, app) }) {
+        if appPIDs(app, in: remaining).isEmpty {
             return ["killed": bundleID, "pids": pids, "already_stopped": pids.isEmpty]
         }
         Thread.sleep(forTimeInterval: 0.1)

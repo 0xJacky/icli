@@ -144,19 +144,26 @@ static NSString *runningBoardFocalApplication(void) {
     for (size_t i = 0; i < length / sizeof(struct kinfo_proc) && focalIDs.count < 2; i++) {
         pid_t pid = processes[i].kp_proc.p_pid;
         char path[4096] = {0};
+        if (pid <= 0) continue;
+        // An app whose bundle was replaced while it ran has no path any more;
+        // its RunningBoard identity decides below.
+        bool pathless = proc_pidpath(pid, path, sizeof(path)) <= 0;
         // Only app bundles can be the frontmost application.
-        if (pid <= 0 || proc_pidpath(pid, path, sizeof(path)) <= 0) {
-            continue;
-        }
-        char *app = strstr(path, ".app/");
-        if (!app || strchr(app + 5, '/') || strstr(path, "WidgetRenderer")) continue;
+        char *app = pathless ? NULL : strstr(path, ".app/");
+        if (!pathless && (!app || strchr(app + 5, '/') || strstr(path, "WidgetRenderer"))) continue;
         // Callers poll this, launchApp ten times a second, and a host thread
         // may have no pool of its own to drain the RunningBoard objects.
         @autoreleasepool {
         @try {
             id identifier = ((id (*)(id, SEL, int))objc_msgSend)(identifierClass, identifierSelector, pid);
             id handle = ((id (*)(id, SEL, id, NSError **))objc_msgSend)(handleClass, handleSelector, identifier, NULL);
-            NSString *bundleID = [[handle valueForKey:@"identity"] valueForKey:@"embeddedApplicationIdentifier"];
+            id identity = [handle valueForKey:@"identity"];
+            SEL isApplication = NSSelectorFromString(@"isApplication");
+            if (pathless && !([identity respondsToSelector:isApplication] &&
+                              ((BOOL (*)(id, SEL))objc_msgSend)(identity, isApplication))) {
+                continue;
+            }
+            NSString *bundleID = [identity valueForKey:@"embeddedApplicationIdentifier"];
             if (![bundleID isKindOfClass:[NSString class]] || !bundleID.length ||
                 [bundleID containsString:@"WidgetRenderer"]) {
                 continue;
