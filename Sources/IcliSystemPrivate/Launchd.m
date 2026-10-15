@@ -86,15 +86,26 @@ static id objectFromXPC(xpc_object_t value) {
 /// model that moved LaunchDaemons into the foreground user's domain; linked by
 /// name, an iOS 15 dyld refuses to start any binary that carries this file.
 /// On iOS 15 every daemon lives in the system domain alone.
+///
+/// tvOS exports the lookup but is single-user and never enables user sessions,
+/// so the lookup traps with _xpc_api_misuse ("must not be called if
+/// xpc_user_sessions_enabled() is false") rather than returning. Guard it with
+/// libxpc's own predicate and fall back to the iOS 15 behaviour there: the
+/// system domain alone, which is where a single-user system runs its daemons.
 static bool foregroundUID(uint64_t *uid) {
     static uint64_t (*lookup)(uint64_t);
+    static bool (*enabled)(void);
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         // libxpc's own, not the first image that exports the name
         void *xpc = dlopen("/usr/lib/system/libxpc.dylib", RTLD_LAZY | RTLD_NOLOAD);
-        if (xpc) lookup = dlsym(xpc, "xpc_user_sessions_get_foreground_uid");
+        if (xpc) {
+            lookup = dlsym(xpc, "xpc_user_sessions_get_foreground_uid");
+            enabled = dlsym(xpc, "xpc_user_sessions_enabled");
+        }
     });
     if (!lookup) return false;
+    if (enabled && !enabled()) return false;
     *uid = lookup(0);
     return true;
 }
