@@ -65,6 +65,9 @@ jobs:
       - name: Launchd plist paths and the RootHide rewrite
         run: ./scripts/test-launchd-plist-paths.sh
 
+      - name: Foreground-uid lookup guard for tvOS
+        run: ./scripts/test-foreground-uid.sh
+
       - name: RootHide root names and the root on disk
         run: ./scripts/test-roothide-root.sh
 

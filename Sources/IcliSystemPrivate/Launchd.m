@@ -1,5 +1,6 @@
 #import "IcliSystemPrivate.h"
 #import "SystemJSON.h"
+#import "ForegroundUID.h"
 #import <Foundation/Foundation.h>
 #import <xpc/xpc.h>
 #import <dlfcn.h>
@@ -90,11 +91,12 @@ static id objectFromXPC(xpc_object_t value) {
 /// tvOS exports the lookup but is single-user and never enables user sessions,
 /// so the lookup traps with _xpc_api_misuse ("must not be called if
 /// xpc_user_sessions_enabled() is false") rather than returning. Guard it with
-/// libxpc's own predicate and fall back to the iOS 15 behaviour there: the
-/// system domain alone, which is where a single-user system runs its daemons.
+/// libxpc's own predicate (icli_foreground_uid) and fall back to the iOS 15
+/// behaviour there: the system domain alone, which is where a single-user
+/// system runs its daemons.
 static bool foregroundUID(uint64_t *uid) {
-    static uint64_t (*lookup)(uint64_t);
-    static bool (*enabled)(void);
+    static icli_foreground_uid_lookup lookup;
+    static icli_user_sessions_enabled enabled;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         // libxpc's own, not the first image that exports the name
@@ -104,10 +106,7 @@ static bool foregroundUID(uint64_t *uid) {
             enabled = dlsym(xpc, "xpc_user_sessions_enabled");
         }
     });
-    if (!lookup) return false;
-    if (enabled && !enabled()) return false;
-    *uid = lookup(0);
-    return true;
+    return icli_foreground_uid(lookup, enabled, uid);
 }
 
 // Domain types: 1 = system, 2 = a user (handle = uid), 7 = resolved from the
