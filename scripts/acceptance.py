@@ -677,6 +677,8 @@ def crash_report(d):
     assert found, 'no new TestHost crash report'
     report = d.cli('log', 'crash', sorted(found)[0])
     assert not report['truncated'] and 'IcliTestHost' in report['content']
+    head = d.cli('log', 'crash', sorted(found)[0], '--max-bytes', '64')
+    assert head['truncated'] and head['bytes'] <= 64 and head['size'] == report['size'], head
     d.cli('log', 'crash', '/tmp/icli-missing.ips', expected=1)
     d.fixture()
 

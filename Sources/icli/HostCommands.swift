@@ -50,8 +50,9 @@ extension Log {
     struct Crash: ParsableCommand {
         @OptionGroup var output: OutputOptions
         @Argument var path: String
+        @Option(help: "Read at most this many bytes; truncated says the report goes on") var maxBytes: Int?
         func run() {
-            emit(output) { try readCrashLog(path) }
+            emit(output) { try readCrashLog(path, maxBytes: maxBytes) }
         }
     }
 }

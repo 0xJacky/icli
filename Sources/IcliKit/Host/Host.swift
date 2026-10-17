@@ -62,12 +62,34 @@ public func crashLogs(bundleID: String?) throws -> [String: Any] {
     return ["crashes": files.sorted { $0.1 > $1.1 }.map(\.0), "count": files.count]
 }
 
-public func readCrashLog(_ path: String) throws -> [String: Any] {
-    let data = try Data(contentsOf: URL(fileURLWithPath: path), options: .mappedIfSafe)
+/// The most a crash report read answers, in bytes.
+public let crashReadLimit: ClosedRange<Int> = 1 ... 64 * 1024 * 1024
+
+/// Reads one crash report as UTF-8 text. With `maxBytes`, at most that many
+/// bytes are read, cut back to a whole character, and `truncated` says the
+/// report goes on; `size` is always the whole file's.
+public func readCrashLog(_ path: String, maxBytes: Int? = nil) throws -> [String: Any] {
+    if let maxBytes, !crashReadLimit.contains(maxBytes) {
+        throw IcliError.failed("max-bytes must be 1–67108864")
+    }
+    let prefix: FilePrefix
+    do {
+        prefix = try FilePrefix.read(path, limit: maxBytes)
+    } catch let error as FilePrefixError {
+        throw IcliError.failed("crash report: \(error.message)")
+    }
+    let data = prefix.truncated ? FilePrefix.utf8Prefix(prefix.data) : prefix.data
     guard let text = String(data: data, encoding: .utf8) else {
         throw IcliError.failed("crash report is not UTF-8 text")
     }
-    return ["path": path, "content": text, "size": data.count, "encoding": "utf8", "truncated": false]
+    return [
+        "path": path,
+        "content": text,
+        "size": prefix.size,
+        "bytes": data.count,
+        "encoding": "utf8",
+        "truncated": prefix.truncated,
+    ]
 }
 
 public func dumpKeychain() throws -> [String: Any] {
