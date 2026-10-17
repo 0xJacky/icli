@@ -150,22 +150,30 @@ static BOOL hiddenApplication(const char *path) {
 // Setup Assistant drops its launch assertion and never takes a workspace focal
 // one, yet RunningBoard keeps its role at UserInteractiveFocal, so the role
 // decides when no assertion does.
-static NSString *runningBoardFocalApplication(void) {
+//
+// Without an answer, `why` says what was missing, so a host whose process
+// context differs from the CLI's can tell which step failed.
+static NSString *runningBoardFocalApplication(NSMutableDictionary *why) {
     icli_running_board_init();
     if (![identifierClass respondsToSelector:identifierSelector] || ![handleClass respondsToSelector:handleSelector]) {
+        why[@"reason"] = @"runningboard_unavailable";
         return nil;
     }
     int mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL};
     size_t length = 0;
     if (sysctl(mib, 3, NULL, &length, NULL, 0) != 0) {
+        why[@"reason"] = @"process_list_failed";
         return nil;
     }
     length += 64 * sizeof(struct kinfo_proc);
     struct kinfo_proc *processes = calloc(1, length);
     if (!processes || sysctl(mib, 3, processes, &length, NULL, 0) != 0) {
         free(processes);
+        why[@"reason"] = @"process_list_failed";
         return nil;
     }
+    long candidates = 0, handles = 0, states = 0, pathlessCount = 0;
+    NSString *handleError = nil;
     NSMutableSet<NSString *> *focalIDs = [NSMutableSet set];
     NSMutableSet<NSString *> *foregroundFocalIDs = [NSMutableSet set];
     NSMutableSet<NSString *> *hiddenFocalIDs = [NSMutableSet set];
@@ -180,12 +188,20 @@ static NSString *runningBoardFocalApplication(void) {
         // Only app bundles can be the frontmost application.
         char *app = pathless ? NULL : strstr(path, ".app/");
         if (!pathless && (!app || strchr(app + 5, '/') || strstr(path, "WidgetRenderer"))) continue;
+        candidates++;
+        if (pathless) pathlessCount++;
         // Callers poll this, launchApp ten times a second, and a host thread
         // may have no pool of its own to drain the RunningBoard objects.
         @autoreleasepool {
         @try {
             id identifier = ((id (*)(id, SEL, int))objc_msgSend)(identifierClass, identifierSelector, pid);
-            id handle = ((id (*)(id, SEL, id, NSError **))objc_msgSend)(handleClass, handleSelector, identifier, NULL);
+            NSError *error = nil;
+            id handle = ((id (*)(id, SEL, id, NSError **))objc_msgSend)(handleClass, handleSelector, identifier, &error);
+            if (!handle) {
+                if (!handleError) handleError = error.description ?: @"no handle";
+                continue;
+            }
+            handles++;
             id identity = [handle valueForKey:@"identity"];
             SEL isApplication = NSSelectorFromString(@"isApplication");
             if (pathless && !([identity respondsToSelector:isApplication] &&
@@ -198,6 +214,7 @@ static NSString *runningBoardFocalApplication(void) {
                 continue;
             }
             id state = [handle valueForKey:@"currentState"];
+            if (state) states++;
             if (pNSStringFromRBSRole && [state respondsToSelector:roleSelector]) {
                 uint8_t role = ((uint8_t (*)(id, SEL))objc_msgSend)(state, roleSelector);
                 if ([pNSStringFromRBSRole(role) isEqualToString:@"UserInteractiveFocal"]) {
@@ -226,14 +243,29 @@ static NSString *runningBoardFocalApplication(void) {
     }
     free(processes);
     if (focalIDs.count == 1) return focalIDs.anyObject;
-    if (focalIDs.count > 1) return foregroundFocalIDs.count == 1 ? foregroundFocalIDs.anyObject : nil;
+    if (focalIDs.count > 1 && foregroundFocalIDs.count == 1) return foregroundFocalIDs.anyObject;
     [focalRoleIDs minusSet:hiddenFocalIDs];
-    return focalRoleIDs.count == 1 ? focalRoleIDs.anyObject : nil;
+    if (!focalIDs.count && focalRoleIDs.count == 1) return focalRoleIDs.anyObject;
+    why[@"reason"] = focalIDs.count ? @"several_focal_apps"
+        : focalRoleIDs.count ? @"several_focal_roles"
+        : !handles ? @"no_process_handles"
+        : !states ? @"no_process_states"
+        : @"no_focal_app";
+    why[@"app_processes"] = @(candidates);
+    why[@"pathless_processes"] = @(pathlessCount);
+    why[@"handles"] = @(handles);
+    why[@"states"] = @(states);
+    if (handleError) why[@"handle_error"] = handleError;
+    NSArray *sorted = [(focalIDs.count ? focalIDs : focalRoleIDs).allObjects sortedArrayUsingSelector:@selector(compare:)];
+    if (sorted.count) why[@"focal"] = sorted;
+    if (hiddenFocalIDs.count) why[@"hidden_focal"] = [hiddenFocalIDs.allObjects sortedArrayUsingSelector:@selector(compare:)];
+    return nil;
 }
 
 char *icli_frontmost_app_json(void) {
     icli_launch_init();
-    NSString *bid = runningBoardFocalApplication();
+    NSMutableDictionary *why = [NSMutableDictionary dictionary];
+    NSString *bid = runningBoardFocalApplication(why);
     if (bid.length) return launchJSON(@{@"bundle_id": bid, @"verified": @YES, @"source": @"runningboard"});
     if (pSBSCopyFrontmostApplicationDisplayIdentifier)
         bid = pSBSCopyFrontmostApplicationDisplayIdentifier();
@@ -241,6 +273,7 @@ char *icli_frontmost_app_json(void) {
         @"bundle_id": bid.length ? bid : @"com.apple.springboard",
         @"verified": @NO,
         @"source": bid.length ? @"springboard_query" : @"unavailable",
+        @"runningboard": why,
     });
 }
 
