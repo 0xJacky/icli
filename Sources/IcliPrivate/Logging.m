@@ -20,6 +20,30 @@ static NSString *stringOrNil(id value) {
     return [value isKindOfClass:NSString.class] ? value : nil;
 }
 
+/// `value` with each lone UTF-16 surrogate replaced by U+FFFD, so it has a
+/// UTF-8 form: -UTF8String answers NULL for a lone surrogate, and a log
+/// message is whatever the logging process passed.
+static NSString *wellFormed(NSString *value) {
+    if (!value) return @"";
+    // -canBeConvertedToEncoding: answers YES for a lone surrogate, so look.
+    CFStringRef string = (__bridge CFStringRef)value;
+    CFIndex length = CFStringGetLength(string);
+    CFStringInlineBuffer buffer;
+    CFStringInitInlineBuffer(string, &buffer, CFRangeMake(0, length));
+    NSMutableString *repaired = nil;
+    for (CFIndex i = 0; i < length; i++) {
+        UniChar unit = CFStringGetCharacterFromInlineBuffer(&buffer, i);
+        if (CFStringIsSurrogateHighCharacter(unit) && i + 1 < length &&
+            CFStringIsSurrogateLowCharacter(CFStringGetCharacterFromInlineBuffer(&buffer, i + 1))) {
+            i++;
+        } else if (CFStringIsSurrogateHighCharacter(unit) || CFStringIsSurrogateLowCharacter(unit)) {
+            if (!repaired) repaired = [value mutableCopy];
+            [repaired replaceCharactersInRange:NSMakeRange((NSUInteger)i, 1) withString:@"\uFFFD"];
+        }
+    }
+    return repaired ?: value;
+}
+
 static NSString *filterString(const char *value) {
     if (!value || !*value) return nil;
     return [NSString stringWithUTF8String:value];
@@ -180,41 +204,50 @@ NSString *icli_syslog_severity(unsigned long long type) {
             return;
         id date = logProperty(event, @"date");
         double seconds = [date isKindOfClass:NSDate.class] ? [(NSDate *)date timeIntervalSince1970] : NAN;
+        NSString *safeProcess = wellFormed(process);
+        NSString *safeSubsystem = wellFormed(subsystem);
+        NSString *safeCategory = wellFormed(category);
+        NSString *safeMessage = wellFormed(message);
         [_lock lock];
         if (_finished) {
             [_lock unlock];
             return;
         }
+        // Counted before the call, so a stop from inside the handler reports
+        // the entry it was given.
+        _delivered++;
         bool more = _entry(
-            (process ?: @"").UTF8String,
+            (__bridge CFStringRef)safeProcess,
             pid,
-            (subsystem ?: @"").UTF8String,
-            (category ?: @"").UTF8String,
-            icli_syslog_severity(type).UTF8String,
-            message.UTF8String,
+            (__bridge CFStringRef)safeSubsystem,
+            (__bridge CFStringRef)safeCategory,
+            (__bridge CFStringRef)icli_syslog_severity(type),
+            (__bridge CFStringRef)safeMessage,
             seconds
         );
-        _delivered++;
-        BOOL limit = _maxEntries && _delivered >= _maxEntries;
-        [_lock unlock];
-        if (!more) {
-            [self stopWithReason:IcliSyslogEndStopped];
-        } else if (limit) {
-            [self stopWithReason:IcliSyslogEndEntryLimit];
+        // Ended inside the lock, so a call waiting on it from another thread
+        // finds the stream over: nothing past the limit or after false.
+        if (!_finished && !more) {
+            [self endLocked:IcliSyslogEndStopped];
+        } else if (!_finished && _maxEntries && _delivered >= _maxEntries) {
+            [self endLocked:IcliSyslogEndEntryLimit];
         }
+        [_lock unlock];
     }
 }
 
 - (void)stopWithReason:(IcliSyslogEnd)reason {
     [_lock lock];
-    if (_finished) {
-        [_lock unlock];
-        return;
-    }
+    if (!_finished) [self endLocked:reason];
+    [_lock unlock];
+}
+
+/// Marks the listen over; the caller holds the lock. The stream is
+/// invalidated and `end` called on another queue, outside the lock: the
+/// caller may be the stream's own handler.
+- (void)endLocked:(IcliSyslogEnd)reason {
     _finished = YES;
     long delivered = _delivered;
-    [_lock unlock];
-    // Invalidated off this thread: the caller may be the stream's own handler.
     id stream = _stream;
     IcliSyslogEndHandler end = _end;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
@@ -255,20 +288,20 @@ NSDictionary *icli_syslog_capture(id live, IcliSyslogMatcher *matcher, double se
         initWithStream:live
                matcher:matcher
             maxEntries:0
-                 entry:^bool(const char *name, int pid, const char *subsystem, const char *category,
-                             const char *severity, const char *message, double date) {
+                 entry:^bool(CFStringRef name, int pid, CFStringRef subsystem, CFStringRef category,
+                             CFStringRef severity, CFStringRef message, double date) {
                      if (entries.count >= (NSUInteger)maxLines) {
                          truncated = YES;
                          return true;
                      }
                      NSDate *stamp = isnan(date) ? nil : [NSDate dateWithTimeIntervalSince1970:date];
                      [entries addObject:@{
-                         @"process": @(name),
+                         @"process": (__bridge NSString *)name,
                          @"pid": @(pid),
-                         @"message": @(message),
-                         @"subsystem": @(subsystem),
-                         @"category": @(category),
-                         @"level": @(severity),
+                         @"message": (__bridge NSString *)message,
+                         @"subsystem": (__bridge NSString *)subsystem,
+                         @"category": (__bridge NSString *)category,
+                         @"level": (__bridge NSString *)severity,
                          @"date": stamp ? [formatter stringFromDate:stamp] : @""
                      }];
                      return true;

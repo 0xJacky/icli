@@ -1,5 +1,6 @@
 #pragma once
 
+#include <CoreFoundation/CoreFoundation.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -204,15 +205,17 @@ typedef enum {
     IcliSyslogEndInterrupted = 4,
 } IcliSyslogEnd;
 
-/// One matching entry. The strings are valid for the call only; `date` is
-/// seconds since 1970, or NaN when the event has none. Answer false to stop.
+/// One matching entry. The strings are never NULL, are valid for the call
+/// only (retain one to keep it), hold any NUL the message had, and are
+/// well-formed: a lone UTF-16 surrogate becomes U+FFFD. `date` is seconds
+/// since 1970, or NaN when the event has none. Answer false to stop.
 typedef bool (^IcliSyslogEntryHandler)(
-    const char *process,
+    CFStringRef process,
     int pid,
-    const char *subsystem,
-    const char *category,
-    const char *level,
-    const char *message,
+    CFStringRef subsystem,
+    CFStringRef category,
+    CFStringRef level,
+    CFStringRef message,
     double date
 );
 typedef void (^IcliSyslogEndHandler)(IcliSyslogEnd reason, long delivered);

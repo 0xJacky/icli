@@ -91,12 +91,12 @@ public final class SyslogStream: @unchecked Sendable {
         let entry: IcliSyslogEntryHandler = { process, pid, subsystem, category, level, message, date in
             handler(SyslogEntry(
                 date: date.isNaN ? nil : Date(timeIntervalSince1970: date),
-                process: process.map { String(cString: $0) } ?? "",
+                process: process.map { $0 as String } ?? "",
                 pid: pid,
-                subsystem: subsystem.map { String(cString: $0) } ?? "",
-                category: category.map { String(cString: $0) } ?? "",
-                level: level.map { String(cString: $0) } ?? "",
-                message: message.map { String(cString: $0) } ?? "",
+                subsystem: subsystem.map { $0 as String } ?? "",
+                category: category.map { $0 as String } ?? "",
+                level: level.map { $0 as String } ?? "",
+                message: message.map { $0 as String } ?? "",
             ))
         }
         let end: IcliSyslogEndHandler = { reason, _ in

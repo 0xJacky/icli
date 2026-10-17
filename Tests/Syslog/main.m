@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <stdatomic.h>
 #import "Syslog.h"
+#import "IcliJSON.h"
 
 // The syslog filters and the stream's life cycle, checked on the Mac against
 // a stand-in for OSLogEventLiveStream that answers the same selectors.
@@ -41,6 +42,9 @@ static FakeEvent *event(NSString *process, int pid, NSString *subsystem, NSStrin
 @property (atomic) BOOL invalidated;
 @property (atomic) int invalidations;
 @property (atomic) BOOL noise;
+/// How many threads send the noise at once; the live stream uses one, but
+/// nothing promises it, and the stream must hold its limits either way.
+@property (atomic) int threads;
 @end
 @implementation FakeStream
 - (void)activate {
@@ -56,6 +60,11 @@ static FakeEvent *event(NSString *process, int pid, NSString *subsystem, NSStrin
             usleep(200);
         }
     }];
+    for (int i = 1; i < self.threads; i++) {
+        [NSThread detachNewThreadWithBlock:^{
+            while (self.noise && !self.invalidated) handler(event(@"noise", 9, @"com.example.noise", @"n", 0, @"noise"));
+        }];
+    }
 }
 - (void)invalidate {
     self.invalidated = YES;
@@ -138,12 +147,16 @@ typedef struct {
     atomic_int reason;
 } Counters;
 
+// The entry handler's shape, in one place.
+#define ENTRY_BLOCK(body) ^bool(CFStringRef p, int pid, CFStringRef s, CFStringRef c, CFStringRef l, CFStringRef msg, double date) body
+#define ENTRY_MESSAGE_BLOCK ENTRY_BLOCK({ [seen addObject:msg ? [(__bridge NSString *)msg copy] : @"(null)"]; return true; })
+
 static IcliSyslogStream *openListen(FakeStream *fake, IcliSyslogMatcher *m, long maxEntries, Counters *counters, bool (^body)(long count)) {
     return [[IcliSyslogStream alloc] initWithStream:fake matcher:m maxEntries:maxEntries
-        entry:^bool(const char *p, int pid, const char *s, const char *c, const char *l, const char *msg, double date) {
+        entry:ENTRY_BLOCK({
             long count = atomic_fetch_add(&counters->entries, 1) + 1;
             return body ? body(count) : true;
-        }
+        })
         end:^(IcliSyslogEnd reason, long delivered) {
             atomic_store(&counters->reason, reason);
             atomic_fetch_add(&counters->ends, 1);
@@ -262,11 +275,113 @@ static void lifecycle(void) {
     }
 }
 
+/// Several threads delivering at once never get past an entry limit or a
+/// handler that answered false.
+static void limitsUnderConcurrency(void) {
+    IcliSyslogMatcher *all = matcher(NULL, 0, NULL, NULL, NULL, NULL);
+    int overLimit = 0, afterFalse = 0;
+    for (int trial = 0; trial < 100; trial++) {
+        Counters counters = {0};
+        FakeStream *fake = [FakeStream new];
+        fake.noise = YES;
+        fake.threads = 4;
+        __attribute__((objc_precise_lifetime)) IcliSyslogStream *stream = openListen(fake, all, 1, &counters, ^bool(long count) {
+            usleep(200);
+            return true;
+        });
+        [stream startWithSeconds:0];
+        waitForEnd(&counters);
+        usleep(2000);
+        if (atomic_load(&counters.entries) > 1) overLimit++;
+
+        Counters stopped = {0};
+        FakeStream *other = [FakeStream new];
+        other.noise = YES;
+        other.threads = 4;
+        __attribute__((objc_precise_lifetime)) IcliSyslogStream *refused = openListen(other, all, 0, &stopped, ^bool(long count) {
+            usleep(200);
+            return false;
+        });
+        [refused startWithSeconds:0];
+        waitForEnd(&stopped);
+        usleep(2000);
+        if (atomic_load(&stopped.entries) > 1) afterFalse++;
+    }
+    CHECK(overLimit == 0, "an entry limit of 1 delivered more in %d of 100 trials", overLimit);
+    CHECK(afterFalse == 0, "entries arrived after the handler answered false in %d of 100 trials", afterFalse);
+}
+
+/// A stop from inside the handler counts the entry that handler was given.
+static void deliveredCountsTheCurrentEntry(void) {
+    Counters *counters = calloc(1, sizeof(Counters));
+    __block atomic_long reported = -1;
+    FakeStream *fake = [FakeStream new];
+    fake.noise = YES;
+    __block IcliSyslogStream *stream;
+    stream = [[IcliSyslogStream alloc] initWithStream:fake matcher:matcher(NULL, 0, NULL, NULL, NULL, NULL) maxEntries:0
+        entry:ENTRY_BLOCK({
+            long count = atomic_fetch_add(&counters->entries, 1) + 1;
+            if (count == 10) [stream stopWithReason:IcliSyslogEndCancelled];
+            return true;
+        })
+        end:^(IcliSyslogEnd reason, long delivered) {
+            atomic_store(&reported, delivered);
+            atomic_fetch_add(&counters->ends, 1);
+        }];
+    [stream startWithSeconds:0];
+    waitForEnd(counters);
+    CHECK(atomic_load(&reported) == 10, "end reported %ld delivered for 10 entries", atomic_load(&reported));
+    stream = nil;
+    free(counters);
+}
+
+/// A message that is not well-formed UTF-16, or holds a NUL, reaches the
+/// handler and the capture whole, with U+FFFD for the broken part.
+static void malformedStrings(void) {
+    unichar broken[] = {'b', 'a', 'd', ' ', 0xD800, ' ', 'e', 'n', 'd'};
+    NSString *lone = [NSString stringWithCharacters:broken length:9];
+    unichar nul[] = {'a', 0, 'b'};
+    NSString *embedded = [NSString stringWithCharacters:nul length:3];
+    NSArray *events = @[
+        event(@"p", 1, lone, @"c", 0, lone),
+        event(@"p", 1, @"s", @"c", 0, embedded),
+    ];
+
+    __block NSMutableArray *seen = [NSMutableArray array];
+    Counters *counters = calloc(1, sizeof(Counters));
+    FakeStream *fake = [FakeStream new];
+    fake.events = events;
+    __attribute__((objc_precise_lifetime)) IcliSyslogStream *stream = [[IcliSyslogStream alloc]
+        initWithStream:fake matcher:matcher(NULL, 0, NULL, NULL, NULL, NULL) maxEntries:2
+        entry:ENTRY_MESSAGE_BLOCK
+        end:^(IcliSyslogEnd reason, long delivered) { atomic_fetch_add(&counters->ends, 1); }];
+    [stream startWithSeconds:0];
+    waitForEnd(counters);
+    NSString *repaired = @"bad \uFFFD end";
+    CHECK(seen.count == 2 && [seen[0] isEqual:repaired], "a lone surrogate reaches the handler repaired: %s", seen.description.UTF8String);
+    CHECK(seen.count == 2 && [seen[1] length] == 3, "an embedded NUL reaches the handler whole");
+
+    FakeStream *captured = [FakeStream new];
+    captured.events = events;
+    NSDictionary *result = icli_syslog_capture(captured, matcher(NULL, 0, NULL, NULL, NULL, NULL), 0.5, 10);
+    NSArray *entries = result[@"entries"];
+    CHECK(entries.count == 2 && [entries[0][@"message"] isEqual:repaired] && [entries[0][@"subsystem"] isEqual:repaired],
+          "the capture repairs a lone surrogate: %s", entries.description.UTF8String);
+    CHECK(entries.count == 2 && [entries[1][@"message"] isEqual:embedded], "the capture keeps an embedded NUL");
+    char *json = icli_json(result);
+    free(counters);
+    CHECK(json != NULL && strstr(json, "bad \xef\xbf\xbd end") != NULL, "the capture serializes: %s", json ?: "(null)");
+    free(json);
+}
+
 int main(void) {
     @autoreleasepool {
         filters();
         filtersBeforeTheCap();
         lifecycle();
+        limitsUnderConcurrency();
+        deliveredCountsTheCurrentEntry();
+        malformedStrings();
     }
     if (failures) {
         fprintf(stderr, "%d syslog check(s) failed\n", failures);
