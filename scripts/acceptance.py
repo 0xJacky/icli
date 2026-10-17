@@ -812,6 +812,9 @@ def unified_log(d):
     assert result['source'] == 'unified_log'
     assert any('icli-testhost-heartbeat' in event['message'] for event in result['entries']), result
     assert all(event['level'] in ['error', 'fault'] for event in result['entries'])
+    # The filters run before the cap: three lines are enough for the heartbeat.
+    marked = d.cli('log', 'syslog', '--seconds', '3', '--message-contains', 'icli-testhost-heartbeat', '--max-lines', '3')
+    assert marked['entries'] and all('icli-testhost-heartbeat' in event['message'] for event in marked['entries']), marked
 
 
 

@@ -11,14 +11,30 @@ struct Log: ParsableCommand {
 
 extension Log {
     struct Syslog: ParsableCommand {
+        static var configuration = CommandConfiguration(
+            abstract: "Capture the live unified log; every filter applies before --max-lines",
+        )
         @OptionGroup var output: OutputOptions
         @Option var seconds: Double = 3
-        @Option var process: String?
-        @Option var level: String = "all"
+        @Option(help: "Case-insensitive substring of the process name") var process: String?
+        @Option(help: "Process identifier") var pid: Int32?
+        @Option(help: "Subsystem, with its dotted children") var subsystem: String?
+        @Option(help: "Category, exactly") var category: String?
+        @Option(help: "Case-sensitive substring of the message") var messageContains: String?
+        @Option(help: "Minimum level: all, debug, info, default, notice, error or fault") var level: String = "all"
         @Option var maxLines: Int = 500
         func run() {
             emit(allowWhenLocked: true, output) {
-                try captureSyslog(seconds: seconds, process: process, level: level, maxLines: maxLines)
+                try captureSyslog(
+                    seconds: seconds,
+                    process: process,
+                    level: level,
+                    maxLines: maxLines,
+                    subsystem: subsystem,
+                    category: category,
+                    messageContains: messageContains,
+                    pid: pid,
+                )
             }
         }
     }

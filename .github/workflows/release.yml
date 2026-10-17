@@ -71,6 +71,9 @@ jobs:
       - name: RootHide root names and the root on disk
         run: ./scripts/test-roothide-root.sh
 
+      - name: Unified log filters and the log stream
+        run: ./scripts/test-syslog.sh
+
       - name: Build and verify both DEBs
         run: ./scripts/check-packages.sh
 

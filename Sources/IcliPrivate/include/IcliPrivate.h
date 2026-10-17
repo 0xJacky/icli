@@ -177,7 +177,67 @@ char *icli_location_clear_json(void);
 /// Waits up to `timeout` seconds for a fresh fix (at the target coordinate when `match`).
 char *icli_location_read_json(double timeout, bool match, double latitude, double longitude);
 
-char *icli_syslog_json(double seconds, const char *process, const char *level, int max_lines);
+/// Listens for `seconds` and answers the matching entries, at most
+/// `max_lines` of them. Every filter applies before the cap; NULL or empty
+/// strings and a pid of 0 or less match anything.
+char *icli_syslog_json(
+    double seconds,
+    const char *process,
+    int pid,
+    const char *subsystem,
+    const char *category,
+    const char *message_contains,
+    const char *level,
+    int max_lines
+);
+
+/// Why a syslog stream ended.
+typedef enum {
+    IcliSyslogEndCancelled = 0,
+    /// Its duration passed.
+    IcliSyslogEndDuration = 1,
+    /// It delivered its maximum number of entries.
+    IcliSyslogEndEntryLimit = 2,
+    /// The entry handler answered false.
+    IcliSyslogEndStopped = 3,
+    /// The system ended the stream: logd went away or refused this process.
+    IcliSyslogEndInterrupted = 4,
+} IcliSyslogEnd;
+
+/// One matching entry. The strings are valid for the call only; `date` is
+/// seconds since 1970, or NaN when the event has none. Answer false to stop.
+typedef bool (^IcliSyslogEntryHandler)(
+    const char *process,
+    int pid,
+    const char *subsystem,
+    const char *category,
+    const char *level,
+    const char *message,
+    double date
+);
+typedef void (^IcliSyslogEndHandler)(IcliSyslogEnd reason, long delivered);
+
+/// Starts one continuous listen with the filters of icli_syslog_json. It ends
+/// after `seconds` when that is above zero, after `max_entries` entries when
+/// that is above zero, when `entry` answers false, when the system ends it, or
+/// at icli_syslog_stream_cancel. Answers NULL when the stream is unavailable
+/// or `level` is unknown. The handle stays valid until
+/// icli_syslog_stream_release, which cancels first.
+void *icli_syslog_stream_open(
+    const char *process,
+    int pid,
+    const char *subsystem,
+    const char *category,
+    const char *message_contains,
+    const char *level,
+    double seconds,
+    long max_entries,
+    IcliSyslogEntryHandler entry,
+    IcliSyslogEndHandler end
+);
+/// No entry is delivered once this returns. Idempotent.
+void icli_syslog_stream_cancel(void *stream);
+void icli_syslog_stream_release(void *stream);
 char *icli_ioreg_json(const char *plane);
 
 #ifdef __cplusplus

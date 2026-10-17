@@ -17,6 +17,11 @@ objc_autorelease
 objc_autoreleasePoolPop
 objc_autoreleasePoolPush
 objc_autoreleaseReturnValue
+objc_copyWeak
+objc_destroyWeak
+objc_initWeak
+objc_loadWeakRetained
+objc_msgSendSuper2
 objc_opt_class
 objc_opt_isKindOfClass
 objc_opt_new
@@ -94,6 +99,7 @@ swift_checkMetadataState
 swift_conformsToProtocol
 swift_deallocClassInstance
 swift_deallocObject
+swift_deallocPartialClassInstance
 swift_deletedMethodError
 swift_dynamicCast
 swift_dynamicCastClass
@@ -110,6 +116,7 @@ swift_getAssociatedTypeWitness
 swift_getAtKeyPath
 swift_getDynamicType
 swift_getEnumCaseMultiPayload
+swift_getEnumTagSinglePayloadGeneric
 swift_getErrorValue
 swift_getExistentialTypeMetadata
 swift_getForeignTypeMetadata
@@ -145,6 +152,7 @@ swift_setDeallocating
 swift_slowAlloc
 swift_slowDealloc
 swift_storeEnumTagMultiPayload
+swift_storeEnumTagSinglePayloadGeneric
 swift_task_alloc
 swift_task_dealloc
 swift_task_switch

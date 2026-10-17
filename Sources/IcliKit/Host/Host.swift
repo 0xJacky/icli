@@ -70,23 +70,6 @@ public func readCrashLog(_ path: String) throws -> [String: Any] {
     return ["path": path, "content": text, "size": data.count, "encoding": "utf8", "truncated": false]
 }
 
-public func captureSyslog(
-    seconds: TimeInterval,
-    process: String? = nil,
-    level: String = "all",
-    maxLines: Int = 500,
-) throws -> [String: Any] {
-    guard seconds.isFinite, (0.1 ... 60).contains(seconds), ["all", "error", "fault"].contains(level),
-          (1 ... 5000).contains(maxLines)
-    else {
-        throw IcliError.failed("seconds must be 0.1–60, level all/error/fault, and max-lines 1–5000")
-    }
-    return try decodeBridgeJSON(
-        takeCString(icli_syslog_json(seconds, process, level, Int32(maxLines))),
-        "unified log response",
-    )
-}
-
 public func dumpKeychain() throws -> [String: Any] {
     try listKeychain(className: nil, service: nil, account: nil, server: nil, group: nil, includeData: false)
 }

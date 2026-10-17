@@ -133,6 +133,39 @@ let syslog = onWorker { try? captureSyslog(seconds: 2, maxLines: 50) }
 let syslogCPU = cpuSeconds() - cpuBefore
 check("syslog_worker_wait", syslog != nil && syslogCPU < 1.0, ["cpu_seconds": syslogCPU])
 
+// 3b. Continuous streams started and cancelled from workers: each ends once,
+// and nothing is delivered after cancel() returns.
+let streamResults = onWorker { () -> [String: Any] in
+    final class Count: @unchecked Sendable {
+        let lock = NSLock()
+        var value = 0
+        func add() { lock.lock(); value += 1; lock.unlock() }
+        var current: Int { lock.lock(); defer { lock.unlock() }; return value }
+    }
+    var late = 0
+    var ends: [String] = []
+    for _ in 0 ..< 20 {
+        let count = Count()
+        guard let stream = try? SyslogStream(handler: { _ in count.add(); return true }) else {
+            return ["error": "unified log stream unavailable"]
+        }
+        Thread.sleep(forTimeInterval: 0.1)
+        stream.cancel()
+        let atCancel = count.current
+        Thread.sleep(forTimeInterval: 0.05)
+        late += count.current - atCancel
+        ends.append(stream.wait(timeout: 2)?.rawValue ?? "none")
+    }
+    let timed = try? SyslogStream(seconds: 0.5, handler: { _ in true })
+    return ["late_entries": late, "ends": Set(ends).sorted(), "timed_end": timed?.wait(timeout: 3)?.rawValue ?? "none"]
+}
+check(
+    "syslog_stream_cancel",
+    streamResults["late_entries"] as? Int == 0 && streamResults["ends"] as? [String] == ["cancelled"]
+        && streamResults["timed_end"] as? String == "duration",
+    streamResults,
+)
+
 // 4. Plists and preferences that hold non-finite reals.
 let plistPath = scratch + "/nan.plist"
 try """
