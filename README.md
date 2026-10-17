@@ -136,8 +136,12 @@ icli app launch example.bundle.id
 icli fs write /tmp/example.txt 'Hello from icli'
 icli fs read /tmp/example.txt
 icli log syslog --seconds 3 --level error
+icli log syslog --seconds 10 --subsystem com.example.tweak --message-contains 'loaded' --max-lines 20
 icli log crashes --bundle-id example.bundle.id
+icli log crash /var/mobile/Library/Logs/CrashReporter/example.ips --max-bytes 65536
 ```
+
+`log syslog` filters by process name (`--process`, a case-insensitive substring), `--pid`, `--subsystem` (with its dotted children), `--category` (exact), `--message-contains` (case-sensitive) and minimum `--level` (`all`, `debug`, `info`, `default`, `error`, `fault`). Every filter runs before `--max-lines`, so unrelated lines on a busy device never use up the cap; `truncated` says more lines matched than were kept. `log crash --max-bytes` reads at most that many bytes of a report, cut back to a whole character, and reports `truncated` and the whole file's `size`.
 
 Upload a package before installing it:
 

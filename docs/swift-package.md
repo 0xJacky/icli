@@ -114,6 +114,37 @@ Entitlements belong to the calling app, exactly as for `IcliKit`, and the [inven
 
 None of these grant root, and a matching entitlement is not proof that a platform will grant it. Everything above except the jetsam priority list has been exercised from the signed CLI; per-key necessity has not been isolated for either product.
 
+## Logs and crash reports
+
+```swift
+import IcliKit
+
+// One bounded read: every filter applies before maxLines.
+let read = try captureSyslog(seconds: 5, filter: SyslogFilter(subsystem: "com.example.tweak", messageContains: "loaded"), maxLines: 50)
+
+// One continuous listen with no seam, until cancelled or its seconds pass.
+let stream = try SyslogStream(filter: SyslogFilter(subsystem: "com.example.tweak"), seconds: 600) { entry in
+    print(entry.date ?? Date(), entry.process, entry.message)
+    return true                                // false stops the stream
+} onEnd: { reason in
+    print("ended:", reason)                    // cancelled, duration, entry_limit, handler, interrupted
+}
+stream.cancel()                                // no entry arrives once this returns
+
+// The same as an async sequence; cancelling the consuming task stops it.
+for await entry in try syslogEntries(filter: SyslogFilter(level: "error"), seconds: 30) {
+    print(entry.message)
+}
+
+let report = try readCrashLog("/var/mobile/Library/Logs/CrashReporter/example.ips", maxBytes: 1 << 20)
+```
+
+`SyslogFilter` keeps entries whose process name contains `process` (case-insensitive), whose `pid` matches, whose subsystem is `subsystem` or a dotted child of it, whose category is `category`, whose message contains `messageContains` (case-sensitive) and whose level is at least `level`. `captureSyslog(seconds:process:level:maxLines:)` keeps its old parameters and takes the new ones after them.
+
+`SyslogStream` delivers each matching entry to its handler, one at a time and in arrival order, until `seconds` pass, `maxEntries` entries have been delivered, the handler answers false, the system ends the stream (`interrupted`: logd went away or refused the process) or `cancel()` is called; releasing it cancels it. `onEnd` runs once, on a queue of its own, and `wait(timeout:)` blocks for the end. Nothing is buffered in the stream: a slow handler holds up the stream and the system drops what it cannot hold. `syslogEntries` buffers at most `bufferLimit` entries for a consumer that falls behind and drops later ones until it catches up. Do not make the handler wait on a thread that may be calling `cancel()`. The live stream needs the logging entitlements in the inventory, as `log syslog` does.
+
+`readCrashLog(_:maxBytes:)` reads at most `maxBytes` of the file without loading the rest, refuses anything but a regular file, and answers `content`, `bytes` (what `content` holds), `size` (the whole file) and `truncated`.
+
 ## The IcliLaunch product
 
 `IcliLaunch` is what a host needs to bring an app to the front, and nothing else: a command-line tool that wakes its own app, for example. `IcliKit` depends on it and re-exports it, and it re-exports `IcliSystem`, whose `IcliError` it throws.
@@ -140,7 +171,7 @@ The lock comes from SpringBoard's `com.apple.springboard.lockstate` notification
 | Call | Entitlement | Status |
 | --- | --- | --- |
 | `launchApp` (the launch itself), `lockState` | none | Verified on the iOS 26.4 RootHide and rootless vphones, as `mobile` and as root: the LaunchServices fallback launches with no entitlement and refuses while locked |
-| `frontmostApp`, and so `launchApp`'s wait | `com.apple.private.security.no-sandbox` | Verified on the iOS 26.4 RootHide vphone. A bootstrap executable signed without it gets no RunningBoard process handles, `frontmostApp()` reports `source: "unavailable"`, and `launchApp` launches the app and then fails after five seconds. `platform-application`, `proc_info-allow`, `task_for_pid-allow` and the launch-application keys alone do not help |
+| `frontmostApp`, and so `launchApp`'s wait | `com.apple.private.security.no-sandbox` | Verified on the iOS 26.4 RootHide vphone. A bootstrap executable signed without it gets no RunningBoard process handles, `frontmostApp()` reports `source: "unavailable"`, and `launchApp` launches the app and then fails after five seconds. `platform-application`, `proc_info-allow`, `task_for_pid-allow` and the launch-application keys alone do not help. An unverified answer carries a `runningboard` object saying which step failed (`reason`: `runningboard_unavailable`, `process_list_failed`, `no_process_handles`, `no_process_states`, `no_focal_app`, `several_focal_apps` or `several_focal_roles`), with counts and RunningBoard's first handle error; on macOS that error names `com.apple.runningboard.process-state` |
 | SpringBoardServices launch | `com.apple.springboard.launchapplications` | Optional: without it the LaunchServices fallback does the same work |
 
 ## Signing and entitlements
