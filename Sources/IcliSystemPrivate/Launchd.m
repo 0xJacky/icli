@@ -16,6 +16,7 @@ static const uint8_t launchctlImageMarker = 1;
 // launchd's bootstrap pipe protocol, as used by launchctl(1). iOS 15 and
 // later pass these flattened routine selectors directly to libxpc.
 enum {
+    RoutineKickstart = 702,
     RoutinePrintService = 708,
     RoutineLoad = 800,
     RoutineUnload = 801,
@@ -270,13 +271,13 @@ static int serviceDomains(uint64_t domains[2][2], NSString *__unsafe_unretained 
     return count;
 }
 
-static int launchdServiceRoutine(uint64_t routine, xpc_object_t message, NSString **domainName) {
+static int launchdServiceRoutine(uint64_t routine, xpc_object_t message, NSString **domainName, xpc_object_t *reply) {
     uint64_t domains[2][2];
     NSString *__unsafe_unretained domainNames[2];
     int count = serviceDomains(domains, domainNames);
     int status = LaunchdNoSuchService;
     for (int i = 0; i < count && status == LaunchdNoSuchService; i++) {
-        status = launchdRoutine(routine, domains[i][0], domains[i][1], message, NULL);
+        status = launchdRoutine(routine, domains[i][0], domains[i][1], message, reply);
         *domainName = domainNames[i];
     }
     return status;
@@ -290,7 +291,7 @@ static xpc_object_t serviceMessage(const char *label) {
 
 static char *serviceActionJSON(uint64_t routine, xpc_object_t message) {
     NSString *domain = nil;
-    int status = launchdServiceRoutine(routine, message, &domain);
+    int status = launchdServiceRoutine(routine, message, &domain, NULL);
     return icli_system_json(@{@"status": @(status), @"message": @(xpc_strerror(status)), @"domain": domain});
 }
 
@@ -304,6 +305,24 @@ char *icli_launchd_stop_json(const char *label) {
 
 char *icli_launchd_remove_json(const char *label) {
     return serviceActionJSON(RoutineRemove, serviceMessage(label));
+}
+
+// launchctl kickstart [-k]: launchd spawns the job now, and with "kill" it
+// first kills a running instance and waits for it to exit. The reply carries
+// the new instance's pid.
+char *icli_launchd_kickstart_json(const char *label, bool kill) {
+    xpc_object_t message = serviceMessage(label);
+    if (kill) xpc_dictionary_set_bool(message, "kill", true);
+    NSString *domain = nil;
+    xpc_object_t reply = NULL;
+    int status = launchdServiceRoutine(RoutineKickstart, message, &domain, &reply);
+    int64_t pid = (status == 0 || status == EALREADY) && reply ? xpc_dictionary_get_int64(reply, "pid") : 0;
+    return icli_system_json(@{
+        @"status": @(status),
+        @"message": @(xpc_strerror(status)),
+        @"domain": domain,
+        @"pid": @(pid)
+    });
 }
 
 char *icli_launchd_kill_json(const char *label, int signal) {

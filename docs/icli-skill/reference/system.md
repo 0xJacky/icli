@@ -20,6 +20,7 @@ On RootHide, `bootstrap` and `load` rewrite each plist in place before handing i
 | `svc unload <paths…>` | Unload (legacy name) | `--disable` (like `launchctl unload -w`) | required |
 | `svc enable <label>` / `svc disable <label>` | Persistent override; does not start or stop the service | | required |
 | `svc start <label>` / `svc stop <label>` | Request a start or stop; check `svc status` afterwards (KeepAlive can restart it) | | required |
+| `svc kickstart <label>` | Spawn the job now (`launchctl kickstart`); a running instance is left alone unless `-k`, which kills it and waits for it to exit so the new process runs the binary on disk now. `pid` is the new process | `-k`/`--kill` (like `launchctl kickstart -k`) | required |
 | `svc kill <signal> <label>` | Send a signal (1–31, or a name such as `TERM`) | | required |
 | `svc remove <label>` | Remove a loaded service | | required |
 | `svc getenv <key>` | Read a launchd environment variable | | no |

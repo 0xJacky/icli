@@ -60,6 +60,7 @@ Per-group detail: [interaction](reference/interaction.md) (screen, ui, input, bu
 | Restart SpringBoard | `icli sb respring` |
 | Check a launchd service | `icli svc status <label>` / `icli svc print <label>` |
 | Start or stop a service | `sudo icli svc start <label>` / `sudo icli svc stop <label>` |
+| Restart a service on its new binary | `sudo icli svc kickstart -k <label>` |
 | List processes | `icli proc list --filter <text>` |
 | Get bootstrap paths (jbroot, layout) | `icli env info` |
 | Capture packets | `sudo icli net capture --seconds 5 --filter 'tcp port 443'` |

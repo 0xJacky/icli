@@ -30,6 +30,7 @@ char *icli_launchd_disabled_json(void);
 char *icli_launchd_start_json(const char *label);
 char *icli_launchd_stop_json(const char *label);
 char *icli_launchd_remove_json(const char *label);
+char *icli_launchd_kickstart_json(const char *label, bool kill);
 char *icli_launchd_kill_json(const char *label, int signal);
 char *icli_launchd_print_json(const char *label);
 char *icli_launchd_getenv_json(const char *key);

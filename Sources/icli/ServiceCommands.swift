@@ -5,10 +5,10 @@ import IcliKit
 struct Svc: ParsableCommand {
     static var configuration = CommandConfiguration(
         abstract: "Inspect and manage launchd services.",
-        discussion: "Use plist paths with bootstrap, bootout, load, unload, and paths. On RootHide, bootstrap and load first rewrite the paths launchd reads into the jbroot, in place, as RootHide's launchctl does; 'paths' shows the result without writing. For commands that accept a label, use the plist's Label value without a domain prefix.\n\nEnable and disable set persistent overrides; they do not start or stop a process. Start and stop request a process change; check status afterward. A service with KeepAlive enabled may restart after stop.\n\nService changes require root and the launchd privileges granted by your jailbreak. Root alone may not provide every required privilege.\n\nExamples:\n  icli svc list\n  icli svc status com.example.service\n  icli svc start com.example.service\n  icli svc stop com.example.service\n\nRun 'icli svc <command> --help' for its arguments.",
+        discussion: "Use plist paths with bootstrap, bootout, load, unload, and paths. On RootHide, bootstrap and load first rewrite the paths launchd reads into the jbroot, in place, as RootHide's launchctl does; 'paths' shows the result without writing. For commands that accept a label, use the plist's Label value without a domain prefix.\n\nEnable and disable set persistent overrides; they do not start or stop a process. Start and stop request a process change; check status afterward. A service with KeepAlive enabled may restart after stop.\n\nService changes require root and the launchd privileges granted by your jailbreak. Root alone may not provide every required privilege.\n\nExamples:\n  icli svc list\n  icli svc status com.example.service\n  icli svc start com.example.service\n  icli svc kickstart -k com.example.service\n  icli svc stop com.example.service\n\nRun 'icli svc <command> --help' for its arguments.",
         subcommands: [
             Bootstrap.self, Bootout.self, Load.self, Unload.self,
-            Enable.self, Disable.self, Start.self, Stop.self,
+            Enable.self, Disable.self, Start.self, Kickstart.self, Stop.self,
             Kill.self, Remove.self, List.self, Print.self, PrintDisabled.self,
             Dump.self, Paths.self, Getenv.self, Setenv.self, Unsetenv.self, Status.self,
         ],
@@ -86,6 +86,19 @@ extension Svc {
         @Argument(help: serviceLabelHelp) var label: String
         func run() {
             emit(allowWhenLocked: true, output) { try startService(label) }
+        }
+    }
+
+    struct Kickstart: ParsableCommand {
+        static var configuration = CommandConfiguration(
+            abstract: "Start a loaded service now, optionally replacing a running instance.",
+            discussion: "Like 'launchctl kickstart'. Without --kill a running service is left as it is. With --kill launchd kills the running instance, waits for it to exit and spawns a new one, which runs the program as it is on disk now; use it after replacing a daemon's binary. The new process id is in 'pid'.",
+        )
+        @OptionGroup var output: OutputOptions
+        @Flag(name: .shortAndLong, help: "Kill a running instance before starting the service (launchctl kickstart -k)") var kill = false
+        @Argument(help: serviceLabelHelp) var label: String
+        func run() {
+            emit(allowWhenLocked: true, output) { try kickstartService(label, kill: kill) }
         }
     }
 

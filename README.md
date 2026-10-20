@@ -170,6 +170,7 @@ icli device jetsam
 icli svc paths /var/jb/Library/LaunchDaemons/example.service.plist
 sudo icli svc load /var/jb/Library/LaunchDaemons/example.service.plist
 sudo icli svc kill TERM example.service
+sudo icli svc kickstart -k example.service
 sudo icli svc unload /var/jb/Library/LaunchDaemons/example.service.plist
 icli app refresh
 icli sb system-apps get
