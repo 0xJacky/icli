@@ -21,6 +21,7 @@ OBJC_EXTERN UIImage *_UICreateScreenUIImage(void) NS_RETURNS_RETAINED;
 #import <stdlib.h>
 #import <sys/sysctl.h>
 #import <IOKit/IOKitLib.h>
+#import <os/lock.h>
 
 @interface NSObject (IcliLS)
 - (BOOL)openSensitiveURL:(NSURL *)url withOptions:(id)options;
@@ -96,6 +97,7 @@ enum {
     kIOHIDDigitizerEventPosition = 1 << 2,
     kIOHIDDigitizerTransducerTypeHand = 3,
     kIOHIDEventOptionNone = 0,
+    kHIDPage_KeyboardOrKeypad = 0x07,
     kHIDPage_Consumer = 0x0C,
     kHIDUsage_Csmr_Power = 0x30,
     kHIDUsage_Csmr_Menu = 0x40,
@@ -766,7 +768,7 @@ bool icli_screenshot_jpeg(const char *path, float quality, int max_bytes, bool n
     return [data writeToFile:[NSString stringWithUTF8String:path] atomically:YES];
 }
 
-static bool dispatchHID(IOHIDEventRef event) {
+static bool dispatchHIDFrom(IOHIDEventRef event, uint64_t sender) {
     if (!event || !sHIDClient || !pIOHIDEventSystemClientDispatchEvent) {
         if (event) {
             CFRelease(event);
@@ -774,11 +776,137 @@ static bool dispatchHID(IOHIDEventRef event) {
         return false;
     }
     if (pIOHIDEventSetSenderID) {
-        pIOHIDEventSetSenderID(event, kBuiltInDigitizerSenderID);
+        pIOHIDEventSetSenderID(event, sender);
     }
     pIOHIDEventSystemClientDispatchEvent(sHIDClient, event);
     CFRelease(event);
     return true;
+}
+
+static bool dispatchHID(IOHIDEventRef event) {
+    return dispatchHIDFrom(event, kBuiltInDigitizerSenderID);
+}
+
+// MARK: - Keyboard sender
+
+// iOS takes a key event as pressed on the device its sender names. From the
+// touchscreen's sender, marked built in, no hardware keyboard is behind it,
+// although one may be attached. Keyboard-page events therefore go out as the
+// attached keyboard's: the first keyboard event service that is not built in.
+// Without one the software keyboard is in use anyway, and they keep the
+// touchscreen's sender and the built-in mark.
+
+static bool registryBool(io_registry_entry_t service, CFStringRef key) {
+    CFTypeRef value = IORegistryEntrySearchCFProperty(
+        service,
+        kIOServicePlane,
+        key,
+        kCFAllocatorDefault,
+        kIORegistryIterateRecursively | kIORegistryIterateParents
+    );
+    if (!value) {
+        return false;
+    }
+    bool result = false;
+    if (CFGetTypeID(value) == CFBooleanGetTypeID()) {
+        result = CFBooleanGetValue(value);
+    } else if (CFGetTypeID(value) == CFNumberGetTypeID()) {
+        int number = 0;
+        result = CFNumberGetValue(value, kCFNumberIntType, &number) && number != 0;
+    }
+    CFRelease(value);
+    return result;
+}
+
+static int registryInt(NSDictionary *properties, NSString *key) {
+    id value = properties[key];
+    return [value isKindOfClass:NSNumber.class] ? [value intValue] : -1;
+}
+
+// Generic Desktop (0x01) Keyboard (0x06) or Keypad (0x07), as the service's
+// primary usage or any of its usage pairs.
+static bool isKeyboardService(io_registry_entry_t service) {
+    CFMutableDictionaryRef raw = NULL;
+    if (IORegistryEntryCreateCFProperties(service, &raw, kCFAllocatorDefault, 0) != KERN_SUCCESS || !raw) {
+        return false;
+    }
+    NSDictionary *properties = CFBridgingRelease(raw);
+    NSMutableArray<NSDictionary *> *usages = [NSMutableArray array];
+    [usages addObject:@{
+        @"DeviceUsagePage": properties[@"PrimaryUsagePage"] ?: @(-1),
+        @"DeviceUsage": properties[@"PrimaryUsage"] ?: @(-1),
+    }];
+    id pairs = properties[@"DeviceUsagePairs"];
+    if ([pairs isKindOfClass:NSArray.class]) {
+        for (id pair in pairs) {
+            if ([pair isKindOfClass:NSDictionary.class]) {
+                [usages addObject:pair];
+            }
+        }
+    }
+    for (NSDictionary *usage in usages) {
+        int page = registryInt(usage, @"DeviceUsagePage");
+        int value = registryInt(usage, @"DeviceUsage");
+        if (page == 0x01 && (value == 0x06 || value == 0x07)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static uint64_t findKeyboardSender(void) {
+    io_iterator_t iterator = IO_OBJECT_NULL;
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOHIDEventService"), &iterator)
+        != KERN_SUCCESS) {
+        return 0;
+    }
+    uint64_t found = 0;
+    io_registry_entry_t service;
+    while ((service = IOIteratorNext(iterator))) {
+        if (!found && isKeyboardService(service) && !registryBool(service, CFSTR("Built-In"))) {
+            uint64_t entryID = 0;
+            if (IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS) {
+                found = entryID;
+            }
+        }
+        IOObjectRelease(service);
+    }
+    IOObjectRelease(iterator);
+    return found;
+}
+
+// A keyboard can be connected or disconnected at any time, so the answer is
+// kept for a second only: long enough for the keys of one shortcut, short
+// enough to follow the keyboard.
+static uint64_t keyboardSender(void) {
+    static os_unfair_lock lock = OS_UNFAIR_LOCK_INIT;
+    static uint64_t cached;
+    static uint64_t checkedAt;
+    static mach_timebase_info_data_t timebase;
+    os_unfair_lock_lock(&lock);
+    if (!timebase.denom) {
+        mach_timebase_info(&timebase);
+    }
+    uint64_t now = mach_absolute_time();
+    uint64_t elapsedNS = (now - checkedAt) * timebase.numer / timebase.denom;
+    if (!checkedAt || elapsedNS > NSEC_PER_SEC) {
+        cached = findKeyboardSender();
+        checkedAt = now;
+    }
+    uint64_t sender = cached;
+    os_unfair_lock_unlock(&lock);
+    return sender;
+}
+
+// IOHIDEventFieldBase(kIOHIDEventTypeNULL) + 4: kIOHIDEventFieldIsBuiltIn.
+#define kIOHIDEventFieldIsBuiltIn 4
+
+static bool dispatchKeyboardHID(IOHIDEventRef event) {
+    uint64_t sender = keyboardSender();
+    if (event && pIOHIDEventSetIntegerValue) {
+        pIOHIDEventSetIntegerValue(event, kIOHIDEventFieldIsBuiltIn, sender ? 0 : 1);
+    }
+    return sender ? dispatchHIDFrom(event, sender) : dispatchHID(event);
 }
 
 // The digitizer reports in the fixed (portrait) space, whatever the UI shows.
@@ -940,8 +1068,12 @@ bool icli_hid_key(uint16_t usage_page, uint16_t usage, bool down) {
         down,
         0
     );
-    if (event && pIOHIDEventSetIntegerValue) pIOHIDEventSetIntegerValue(event, 4, 1);
-    return dispatchHID(event);
+    // Buttons (the Consumer page) are the device's own, not a keyboard's.
+    if (usage_page != kHIDPage_KeyboardOrKeypad) {
+        if (event && pIOHIDEventSetIntegerValue) pIOHIDEventSetIntegerValue(event, kIOHIDEventFieldIsBuiltIn, 1);
+        return dispatchHID(event);
+    }
+    return dispatchKeyboardHID(event);
 }
 
 bool icli_hid_text(const char *text) {
@@ -966,7 +1098,10 @@ bool icli_hid_text(const char *text) {
         1,
         0
     );
-    if (event && pIOHIDEventSetIntegerValue) pIOHIDEventSetIntegerValue(event, 4, 1);
+    // A text event is not a key a keyboard has, and iPadOS brings up the
+    // software keyboard for it from any sender, the keyboard's included
+    // (measured on iPadOS 26.6.2), so it keeps the touchscreen's.
+    if (event && pIOHIDEventSetIntegerValue) pIOHIDEventSetIntegerValue(event, kIOHIDEventFieldIsBuiltIn, 1);
     return dispatchHID(event);
 }
 
