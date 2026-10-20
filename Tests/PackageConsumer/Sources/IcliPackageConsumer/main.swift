@@ -16,13 +16,14 @@ let launchdAPIs: [Any] = [
     serviceStatus as (String) throws -> [String: Any],
     printService as (String) throws -> [String: Any],
     startService as (String) throws -> [String: Any],
+    kickstartService as (String, Bool) throws -> [String: Any],
     stopService as (String) throws -> [String: Any],
     removeService as (String) throws -> [String: Any],
     signalService as (String, String) throws -> [String: Any],
     launchdEnvironment as (String) throws -> [String: Any],
     setLaunchdEnvironment as (String, String?) throws -> [String: Any],
 ]
-precondition(launchdAPIs.count == 10)
+precondition(launchdAPIs.count == 11)
 /// The 0.6.0 device features, which vphoned will call in-process. Referencing
 /// each with its full type keeps them public and their signatures stable.
 let deviceFeatureAPIs: [Any] = [

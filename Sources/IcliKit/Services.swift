@@ -175,6 +175,23 @@ public func startService(_ label: String) throws -> [String: Any] {
     )
 }
 
+/// launchctl kickstart: spawns the job now, whether or not its launch
+/// conditions hold. With `kill`, a running instance is killed first and
+/// launchd waits for it to exit, so the new process runs the binary as it is
+/// on disk now; without it a running service is left alone and reported
+/// unchanged.
+public func kickstartService(_ label: String, kill: Bool) throws -> [String: Any] {
+    try validateServiceLabel(label)
+    var result = try serviceActionResult(
+        takeCString(icli_launchd_kickstart_json(label, kill)),
+        label: label,
+        action: "kickstart",
+        benignStatuses: [Int(EALREADY)],
+    )
+    result["kill"] = kill
+    return result
+}
+
 public func stopService(_ label: String) throws -> [String: Any] {
     try validateServiceLabel(label)
     return try serviceActionResult(
